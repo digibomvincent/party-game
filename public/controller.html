@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>賽跑控制器</title>
+  <!-- 禁止縮放，營造全螢幕搖桿感 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #101820; color: #fff; overflow: hidden;
+      font-family: "Microsoft JhengHei", "PingFang TC", sans-serif;
+      /* 防止雙擊縮放、長按選字、點擊閃藍色 */
+      touch-action: manipulation; user-select: none; -webkit-user-select: none;
+      -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+    .screen { position: fixed; inset: 0; display: flex; flex-direction: column; padding: 20px; }
+    .hidden { display: none !important; }
+
+    /* 加入畫面 */
+    #joinScreen { justify-content: center; gap: 16px; }
+    #joinScreen h1 { text-align: center; margin: 0 0 10px; font-size: 32px; }
+    #joinScreen input { font-size: 28px; padding: 16px; border-radius: 12px; border: 0; text-align: center;
+      user-select: text; -webkit-user-select: text; }
+    #joinBtn { font-size: 30px; padding: 18px; border: 0; border-radius: 12px; background: #22c55e; color: #052e14; font-weight: bold; }
+    #joinError { color: #f87171; text-align: center; min-height: 24px; }
+
+    /* 遊戲畫面：上方一行文字、下方整個是大按鈕 */
+    #playScreen { padding: 0; }
+    #msg { text-align: center; font-size: 26px; padding: 18px 12px; min-height: 100px;
+      display: flex; align-items: center; justify-content: center; line-height: 1.4; }
+    #bigBtn { flex: 1; margin: 0 16px 24px; border: 0; border-radius: 28px; font-size: 56px; font-weight: bold;
+      color: #fff; background: var(--c, #3b82f6); font-family: inherit;
+      transition: transform .05s, filter .05s; touch-action: manipulation; }
+    #bigBtn.pressed { transform: scale(.95); filter: brightness(1.5); }   /* 按下時的視覺回饋 */
+    #bigBtn:disabled { background: #3a4a5a; color: #7b8a99; }
+  </style>
+</head>
+<body>
+  <!-- 加入畫面 -->
+  <div id="joinScreen" class="screen">
+    <h1>🏃 大頭賽跑</h1>
+    <input id="roomInput" inputmode="numeric" maxlength="4" placeholder="房號（4 位數）">
+    <input id="nameInput" maxlength="10" placeholder="你的暱稱">
+    <button id="joinBtn">加入</button>
+    <div id="joinError"></div>
+  </div>
+
+  <!-- 遊戲畫面 -->
+  <div id="playScreen" class="screen hidden">
+    <div id="msg"></div>
+    <button id="bigBtn" disabled>等待中</button>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="controller.js"></script>
+</body>
+</html>

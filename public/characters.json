@@ -1,0 +1,6 @@
+[
+  { "id": "red",    "name": "紅紅", "color": "#ef4444" },
+  { "id": "blue",   "name": "藍藍", "color": "#3b82f6" },
+  { "id": "green",  "name": "綠綠", "color": "#22c55e" },
+  { "id": "yellow", "name": "黃黃", "color": "#facc15" }
+]

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>朋友大頭賽跑 - 主畫面</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body { margin: 0; height: 100%; background: #101820; overflow: hidden;
+      font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; color: #fff; }
+    #game { position: fixed; inset: 0; }
+
+    /* 蓋在 Phaser 畫面上的面板（大廳、每組結果、總成績） */
+    .panel { position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; background: rgba(16, 24, 32, .92);
+      text-align: center; padding: 20px; box-sizing: border-box; }
+    .panel.hidden { display: none; }
+    h1 { font-size: 48px; margin: 0 0 20px; }
+    h2 { font-size: 28px; margin: 0 0 10px; }
+
+    .lobby-body { display: flex; gap: 60px; align-items: center; flex-wrap: wrap; justify-content: center; }
+    .qr-box { background: #fff; color: #111; padding: 20px; border-radius: 16px; }
+    #qrcode { display: flex; justify-content: center; }
+    .room { font-size: 32px; margin-top: 10px; }
+    .room b { font-size: 56px; letter-spacing: 6px; }
+    .url { font-size: 14px; color: #555; word-break: break-all; max-width: 280px; margin-top: 6px; }
+    .players-box { min-width: 320px; text-align: left; }
+    .hint { color: #9fb3c8; margin-bottom: 10px; min-height: 22px; }
+    #playerList { list-style: none; padding: 0; margin: 0 0 20px; display: flex; flex-wrap: wrap; gap: 10px; max-width: 520px; }
+    #playerList li { background: #1f3347; padding: 8px 16px; border-radius: 20px; font-size: 22px; }
+
+    button { font-size: 28px; padding: 14px 48px; border: 0; border-radius: 14px; cursor: pointer;
+      background: #22c55e; color: #052e14; font-weight: bold; font-family: inherit; }
+    button:disabled { background: #3a4a5a; color: #7b8a99; cursor: not-allowed; }
+
+    ol.rank { list-style: none; padding: 0; margin: 0 0 20px; font-size: 30px; text-align: left; min-width: 420px; }
+    ol.rank li { display: flex; justify-content: space-between; gap: 40px; padding: 8px 18px;
+      background: #1f3347; margin-bottom: 8px; border-radius: 10px; }
+    ol.rank li .dnf { color: #f87171; }
+    .next-info { font-size: 22px; color: #9fb3c8; margin-bottom: 20px; }
+
+    /* 右上角小提示：目前第幾組 */
+    #hud { position: fixed; top: 14px; left: 20px; font-size: 28px; font-weight: bold; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <div id="hud"></div>
+
+  <!-- 大廳：房號、QR Code、已加入玩家 -->
+  <div id="lobby" class="panel">
+    <h1>🏃 朋友大頭賽跑</h1>
+    <div class="lobby-body">
+      <div class="qr-box">
+        <div id="qrcode"></div>
+        <div class="room">房號 <b id="roomCode">----</b></div>
+        <div id="url" class="url"></div>
+      </div>
+      <div class="players-box">
+        <h2>已加入 <span id="count">0</span> 人</h2>
+        <div id="info" class="hint">用手機掃 QR Code 加入</div>
+        <ul id="playerList"></ul>
+        <button id="startBtn" disabled>開始</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 每一組跑完的結果 -->
+  <div id="heatPanel" class="panel hidden">
+    <h1 id="heatTitle"></h1>
+    <ol id="heatList" class="rank"></ol>
+    <div id="nextInfo" class="next-info"></div>
+    <button id="nextBtn"></button>
+  </div>
+
+  <!-- 全部組別跑完的總成績 -->
+  <div id="finalPanel" class="panel hidden">
+    <h1>🏆 總成績</h1>
+    <ol id="finalList" class="rank"></ol>
+    <button id="againBtn">再來一場</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="host.js"></script>
+</body>
+</html>

@@ -15,8 +15,12 @@ const HEAT_MAX_MS = 90000;       // 保險：一組最久跑多久（避免沒�
 // 畫面排版（Phaser 畫布大小 1280x720）
 const CANVAS_W = 1280, CANVAS_H = 720;
 const LANE_COUNT = PLAYERS_PER_HEAT;
-const LANE_TOP = 110, LANE_HEIGHT = 120;
+const LANE_TOP = 100, LANE_HEIGHT = 140;
 const START_X = 150, FINISH_X = 1140, BLOCK_SIZE = 70;
+const HEAD_SIZE = 60;            // 大頭顯示大小（像素）
+const BODY_SCALE = 0.9;          // 身體 sprite 縮放
+const BODY_FRAME_W = 80, BODY_FRAME_H = 100, BODY_FRAMES = 6;
+const PHOTO_PX = 128;            // 大頭貼圖的解析度
 
 // ---------- 遊戲狀態 ----------
 const socket = io();
@@ -28,6 +32,91 @@ let currentHeat = -1;        // 目前跑第幾組（從 0 開始）
 let goTime = 0;              // 這一組 GO 的時間點
 let timers = [];             // 目前進行中的計時器，換階段時清掉
 let roomCode = null;
+let game = null;             // Phaser.Game（下面建立）
+
+// ============================================================
+// 角色素材：全部用程式即時畫出來（不需要圖檔）
+//   - 大頭：玩家的照片裁成圓形；沒照片就用預設笑臉
+//   - 身體：6 格跑步動畫的 sprite sheet，每種顏色畫一張
+// ============================================================
+function makeHeadTexture(p, img) {
+  // 同一位玩家重複使用同一張 canvas 貼圖（照片載入後原地重畫，已顯示的大頭會自動更新）
+  const key = 'head-' + p.id;
+  const tex = game.textures.exists(key) ? game.textures.get(key) : game.textures.createCanvas(key, PHOTO_PX, PHOTO_PX);
+  const g = tex.getContext(), r = PHOTO_PX / 2;
+  g.clearRect(0, 0, PHOTO_PX, PHOTO_PX);
+  g.save();
+  g.beginPath(); g.arc(r, r, r - 4, 0, Math.PI * 2); g.clip();
+  if (img) {
+    g.drawImage(img, 0, 0, PHOTO_PX, PHOTO_PX);
+  } else {                                   // 預設笑臉
+    g.fillStyle = '#fcd34d'; g.fillRect(0, 0, PHOTO_PX, PHOTO_PX);
+    g.fillStyle = '#111';
+    g.beginPath(); g.arc(r - 20, r - 10, 7, 0, 7); g.arc(r + 20, r - 10, 7, 0, 7); g.fill();
+    g.lineWidth = 6; g.lineCap = 'round'; g.strokeStyle = '#111';
+    g.beginPath(); g.arc(r, r + 6, 24, 0.2, Math.PI - 0.2); g.stroke();
+  }
+  g.restore();
+  g.lineWidth = 6; g.strokeStyle = '#fff';
+  g.beginPath(); g.arc(r, r, r - 3, 0, Math.PI * 2); g.stroke();
+  tex.refresh();
+}
+// 玩家加入時：先用預設臉，照片載完再換成真的
+function loadHead(p, photo) {
+  makeHeadTexture(p, null);
+  if (!photo) return;
+  const img = new Image();
+  img.onload = () => makeHeadTexture(p, img);
+  img.src = photo;
+}
+
+// 畫一格跑步動作（t = 這格在步伐週期中的角度）
+function drawBodyFrame(g, ox, t, color) {
+  const bob = Math.abs(Math.sin(t)) * 4;
+  const hipX = ox + BODY_FRAME_W / 2, hipY = 62 - bob, neckY = 24 - bob;
+  const limb = (x, y, a1, a2, len, w) => {       // 兩節肢體：回傳末端座標
+    const kx = x + Math.sin(a1) * len, ky = y + Math.cos(a1) * len;
+    const ex = kx + Math.sin(a2) * len, ey = ky + Math.cos(a2) * len;
+    g.lineCap = g.lineJoin = 'round';
+    g.strokeStyle = '#111'; g.lineWidth = w + 5;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(kx, ky); g.lineTo(ex, ey); g.stroke();
+    g.strokeStyle = color; g.lineWidth = w;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(kx, ky); g.lineTo(ex, ey); g.stroke();
+    return [ex, ey];
+  };
+  const leg = (ph) => {                          // 腿：向後蹬時伸直，向前抬時彎膝
+    const a = Math.sin(t + ph) * 0.9;
+    const [fx, fy] = limb(hipX, hipY, a, a - 0.5 - 0.6 * Math.max(0, Math.sin(t + ph + 1.4)), 15, 9);
+    g.fillStyle = '#fff'; g.strokeStyle = '#111'; g.lineWidth = 3;
+    g.beginPath(); g.ellipse(fx + 4, fy, 8, 5, 0, 0, 7); g.fill(); g.stroke();   // 鞋子
+  };
+  const arm = (ph) => {                          // 手：與腿反向擺動，手肘彎曲
+    const a = -Math.sin(t + ph) * 1.0;
+    const [hx, hy] = limb(hipX, neckY + 8, a, a + 1.2, 12, 7);
+    g.fillStyle = '#fff'; g.strokeStyle = '#111'; g.lineWidth = 2;
+    g.beginPath(); g.arc(hx, hy, 4.5, 0, 7); g.fill(); g.stroke();
+  };
+  leg(Math.PI); arm(0);                          // 後面的腿和手
+  g.fillStyle = color; g.strokeStyle = '#111'; g.lineWidth = 3;   // 身體
+  g.beginPath(); g.roundRect(hipX - 14, neckY, 28, hipY - neckY + 8, 10); g.fill(); g.stroke();
+  leg(0); arm(Math.PI);                          // 前面的腿和手
+}
+// 取得（或建立）某個顏色的身體 sprite sheet 與跑步動畫
+function ensureBody(scene, color) {
+  const key = 'body-' + color;
+  if (scene.textures.exists(key)) return key;
+  const tex = scene.textures.createCanvas(key, BODY_FRAME_W * BODY_FRAMES, BODY_FRAME_H);
+  const g = tex.getContext();
+  const frames = [];
+  for (let i = 0; i < BODY_FRAMES; i++) {
+    drawBodyFrame(g, i * BODY_FRAME_W, (i / BODY_FRAMES) * Math.PI * 2, color);
+    tex.add('f' + i, 0, i * BODY_FRAME_W, 0, BODY_FRAME_W, BODY_FRAME_H);
+    frames.push({ key, frame: 'f' + i });
+  }
+  tex.refresh();
+  scene.anims.create({ key: 'run-' + color, frames, frameRate: 12, repeat: -1 });
+  return key;
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -50,43 +139,97 @@ class RaceScene extends Phaser.Scene {
     // 起跑線與終點線（終點線畫成黑白格）
     this.add.rectangle(START_X - BLOCK_SIZE / 2 - 10, CANVAS_H / 2, 4, LANE_COUNT * LANE_HEIGHT, 0xffffff);
     const finishLineX = FINISH_X + BLOCK_SIZE / 2 + 10;
-    for (let r = 0; r < LANE_COUNT * 6; r++) {
+    for (let r = 0; r < LANE_COUNT * LANE_HEIGHT / 20; r++) {
       this.add.rectangle(finishLineX + (r % 2 ? 10 : 0), LANE_TOP + 10 + r * 20, 10, 20, 0xffffff);
       this.add.rectangle(finishLineX + (r % 2 ? 0 : 10), LANE_TOP + 10 + r * 20, 10, 20, 0x111111);
     }
+    // 撒花用的小方塊貼圖
+    const dot = this.textures.createCanvas('dot', 8, 8);
+    dot.getContext().fillStyle = '#fff'; dot.getContext().fillRect(0, 0, 8, 8); dot.refresh();
     this.titleText = this.add.text(CANVAS_W / 2, 55, '', { fontSize: '44px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
     this.cdText = this.add.text(CANVAS_W / 2, CANVAS_H / 2, '', { fontSize: '220px', color: '#fff', fontStyle: 'bold',
       stroke: '#000', strokeThickness: 12 }).setOrigin(0.5).setDepth(10);
   }
 
-  // 依 view.racers 重建本組玩家的色塊
+  // 依 view.racers 重建本組玩家：身體（跑步動畫）+ 大頭 + 名字
   rebuild() {
-    this.sprites.forEach((s) => { s.block.destroy(); s.label.destroy(); });
+    this.sprites.forEach((s) => { s.c.destroy(); s.label.destroy(); });
     this.sprites = view.racers.map((p) => {
       const y = LANE_TOP + p.lane * LANE_HEIGHT + LANE_HEIGHT / 2;
-      const block = this.add.rectangle(START_X, y + 10, BLOCK_SIZE, BLOCK_SIZE, Phaser.Display.Color.HexStringToColor(p.char.color).color)
-        .setStrokeStyle(4, 0xffffff);
-      const label = this.add.text(START_X, y - 38, p.name, { fontSize: '24px', color: '#fff' }).setOrigin(0.5);
-      return { p, block, label };
+      const color = p.char.color;
+      const bodyKey = ensureBody(this, color);
+      const body = this.add.sprite(0, 0, bodyKey, 'f0').setScale(BODY_SCALE);
+      // 脖子位置在身體 sprite 上方；大頭放在脖子上
+      const headY = (24 - BODY_FRAME_H / 2) * BODY_SCALE - HEAD_SIZE / 2 + 4;
+      const head = this.add.image(0, headY, 'head-' + p.id)
+        .setDisplaySize(HEAD_SIZE, HEAD_SIZE);
+      const c = this.add.container(START_X, y + 28, [body, head]);
+      const label = this.add.text(START_X, y - 64, p.name, { fontSize: '24px', color: '#fff' }).setOrigin(0.5);
+      return { p, c, body, head, label, color, baseY: y + 28, headY, hop: 0, lastPos: p.pos, celebrated: false };
     });
     this.version = view.version;
+  }
+
+  // 按鍵回饋：身體瞬間壓扁再彈回
+  squash(s) {
+    if (s.squashing) return;
+    s.squashing = true;
+    this.tweens.add({ targets: s.body, scaleX: BODY_SCALE * 1.12, scaleY: BODY_SCALE * 0.88, duration: 70, yoyo: true,
+      onComplete: () => { s.squashing = false; s.body.setScale(BODY_SCALE); } });
+  }
+
+  // 抵達終點的慶祝動畫
+  celebrate(s) {
+    s.celebrated = true;
+    s.body.setScale(BODY_SCALE);
+    this.tweens.add({ targets: s, hop: 26, duration: 260, yoyo: true, repeat: -1, ease: 'Sine.easeOut' });
+    this.tweens.add({ targets: s.head, angle: 360, duration: 600, ease: 'Cubic.easeOut', onComplete: () => { s.head.angle = 0; } });
+    this.tweens.add({ targets: s.body, angle: { from: -6, to: 6 }, duration: 200, yoyo: true, repeat: -1 });
+    this.add.particles(FINISH_X - 20, s.baseY - 60, 'dot', {
+      speed: { min: 120, max: 320 }, angle: { min: 200, max: 340 }, gravityY: 600, lifespan: 1100,
+      scale: { start: 1, end: 0.4 }, rotate: { min: 0, max: 360 }, quantity: 24, emitting: false,
+      tint: [0xef4444, 0x3b82f6, 0x22c55e, 0xfacc15, 0xf472b6],
+    }).setDepth(5).explode(24);
   }
 
   update() {
     if (this.version !== view.version) this.rebuild();
     this.titleText.setText(view.title);
     this.cdText.setText(view.countdown);
-    // 色塊平滑移向目標位置
     for (const s of this.sprites) {
       const targetX = START_X + (s.p.pos / TRACK_LENGTH) * (FINISH_X - START_X);
-      s.block.x += (targetX - s.block.x) * 0.25;
-      s.label.x = s.block.x;
+      const dx = targetX - s.c.x;
+      s.c.x += dx * 0.25;
+      s.label.x = s.c.x;
       s.label.setText(s.p.finished ? `${s.p.name}  第${s.p.heatRank}名` : s.p.name);
+      // 在移動就播跑步動畫（越快播越快），停下來就站著
+      const running = Math.abs(dx) > 0.6 && !s.p.finished;
+      if (running) {
+        s.body.anims.timeScale = Phaser.Math.Clamp(Math.abs(dx) / 3, 0.6, 3);
+        if (!s.body.anims.isPlaying) s.body.play('run-' + s.color);
+      } else if (s.body.anims.isPlaying) {
+        s.body.anims.stop();
+        s.body.setFrame('f0');
+      }
+      // 大頭隨步伐上下晃、左右搖（跑得越快晃得越大）
+      const t = this.time.now / 1000, speed = Phaser.Math.Clamp(Math.abs(dx) / 3, 0, 3);
+      if (running) {
+        s.head.y = s.headY - Math.abs(Math.sin(t * 8 * s.body.anims.timeScale)) * 3;
+        s.head.angle = Math.sin(t * 8 * s.body.anims.timeScale) * (3 + speed * 2);
+      } else if (!s.p.finished) {
+        s.head.y = s.headY; s.head.angle = 0;
+      }
+      // 每按一下：身體壓扁彈回
+      if (s.p.pos > s.lastPos && !s.p.finished) this.squash(s);
+      s.lastPos = s.p.pos;
+      // 抵達終點：慶祝（跳、轉頭、撒花）
+      if (s.p.finished && !s.celebrated) this.celebrate(s);
+      s.c.y = s.baseY - s.hop;
     }
   }
 }
 
-new Phaser.Game({
+game = new Phaser.Game({
   type: Phaser.AUTO, parent: 'game', width: CANVAS_W, height: CANVAS_H, backgroundColor: '#101820',
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   scene: RaceScene,
@@ -288,7 +431,7 @@ $('nextBtn').onclick = () => {
 // Socket 事件
 // ============================================================
 // 手機加入（或重整後重新加入）
-socket.on('player:join', ({ playerId, name }) => {
+socket.on('player:join', ({ playerId, name, photo }) => {
   let p = players.get(playerId);
   if (p) {
     p.name = name; p.online = true; // 同一個 playerId = 同一個人，沿用原本資料
@@ -297,6 +440,7 @@ socket.on('player:join', ({ playerId, name }) => {
       finished: false, finishTime: null, heatRank: null, overallRank: null };
     players.set(playerId, p);
   }
+  loadHead(p, photo);
   sendStatus(p);
   renderLobby();
 });

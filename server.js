@@ -10,6 +10,7 @@ const { Server } = require('socket.io');
 // ---------- 常數 ----------
 const PORT = process.env.PORT || 3000;
 const MAX_NAME_LENGTH = 10; // 暱稱最長字數
+const MAX_PHOTO_LENGTH = 100000; // 大頭照 data URL 最大長度
 
 const app = express();
 const server = http.createServer(app);
@@ -80,7 +81,7 @@ io.on('connection', (socket) => {
 
   // ---------- 手機加入 / 重新加入 ----------
   socket.on('player:join', (data, cb) => {
-    const { room: code, playerId, name } = data || {};
+    const { room: code, playerId, name, photo } = data || {};
     const room = rooms.get(String(code));
     if (!room || !playerId) {
       if (typeof cb === 'function') cb({ ok: false, error: '找不到這個房號' });
@@ -90,7 +91,9 @@ io.on('connection', (socket) => {
     socket.data = { role: 'player', room: code, playerId };
     socket.join(code);
     room.players.set(playerId, socket.id);
-    io.to(room.hostId).emit('player:join', { playerId, name: cleanName });
+    // 大頭照只接受小張 JPEG 的 data URL，其餘一律當作沒有
+    const cleanPhoto = typeof photo === 'string' && photo.startsWith('data:image/jpeg;base64,') && photo.length < MAX_PHOTO_LENGTH ? photo : '';
+    io.to(room.hostId).emit('player:join', { playerId, name: cleanName, photo: cleanPhoto });
     if (room.lastState) socket.emit('game:state', room.lastState);
     if (typeof cb === 'function') cb({ ok: true });
   });

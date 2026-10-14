@@ -27,8 +27,36 @@ const params = new URLSearchParams(location.search);
 $('roomInput').value = params.get('room') || '';           // 房號自動帶入
 $('nameInput').value = localStorage.getItem('party-race-name') || '';
 
+// ---------- 大頭照：拍照 / 選圖 → 置中裁成正方形 → 縮成 128px JPEG，存 localStorage ----------
+const PHOTO_SIZE = 128;
+const PHOTO_KEY = 'party-race-photo';
+function getPhoto() { return localStorage.getItem(PHOTO_KEY) || ''; }
+function showPhoto() {
+  const photo = getPhoto();
+  $('photoBtn').style.backgroundImage = photo ? `url(${photo})` : '';
+  $('photoBtn').classList.toggle('has', !!photo);
+}
+showPhoto();
+$('photoBtn').onclick = () => $('photoInput').click();
+$('photoInput').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    const side = Math.min(img.width, img.height);
+    const c = document.createElement('canvas');
+    c.width = c.height = PHOTO_SIZE;
+    c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, PHOTO_SIZE, PHOTO_SIZE);
+    try { localStorage.setItem(PHOTO_KEY, c.toDataURL('image/jpeg', 0.8)); } catch (err) { /* 存不了就只有這次有效 */ }
+    showPhoto();
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(file);
+  e.target.value = ''; // 同一張照片可再選一次
+};
+
 function join(room, name) {
-  socket.emit('player:join', { room, playerId, name }, (res) => {
+  socket.emit('player:join', { room, playerId, name, photo: getPhoto() }, (res) => {
     if (res && res.ok) {
       joined = true;
       session = { room, name };

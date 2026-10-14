@@ -23,6 +23,9 @@
     #joinScreen input { font-size: 28px; padding: 16px; border-radius: 12px; border: 0; text-align: center;
       user-select: text; -webkit-user-select: text; }
     #joinBtn { font-size: 30px; padding: 18px; border: 0; border-radius: 12px; background: #22c55e; color: #052e14; font-weight: bold; }
+    #photoBtn { align-self: center; width: 120px; height: 120px; border-radius: 50%; border: 4px dashed #64748b;
+      background: #1e293b center / cover no-repeat; color: #94a3b8; font-size: 16px; padding: 0; line-height: 1.3; }
+    #photoBtn.has { border: 4px solid #fff; color: transparent; }
     #joinError { color: #f87171; text-align: center; min-height: 24px; }
 
     /* 遊戲畫面：上方一行文字、下方整個是大按鈕 */
@@ -40,6 +43,8 @@
   <!-- 加入畫面 -->
   <div id="joinScreen" class="screen">
     <h1>🏃 大頭賽跑</h1>
+    <button id="photoBtn" type="button">📷<br>拍大頭照</button>
+    <input id="photoInput" type="file" accept="image/*" capture="user" class="hidden">
     <input id="roomInput" inputmode="numeric" maxlength="4" placeholder="房號（4 位數）">
     <input id="nameInput" maxlength="10" placeholder="你的暱稱">
     <button id="joinBtn">加入</button>

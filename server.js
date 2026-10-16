@@ -98,11 +98,23 @@ io.on('connection', (socket) => {
     if (typeof cb === 'function') cb({ ok: true });
   });
 
-  // ---------- 手機按鍵 → 轉給 host ----------
-  socket.on('tap', () => {
+  // ---------- 手機按鍵 → 轉給 host（side：L 左 / R 右 / both 同時按）----------
+  socket.on('tap', (data) => {
+    if (socket.data?.role !== 'player') return;
+    const side = data && data.side;
+    if (side !== 'L' && side !== 'R' && side !== 'both') return;
+    const room = rooms.get(socket.data.room);
+    if (room) io.to(room.hostId).emit('tap', { playerId: socket.data.playerId, side });
+  });
+
+  // ---------- 手機選角色 / 衣服顏色 → 轉給 host（host 負責檢查顏色有沒有被選走）----------
+  socket.on('player:pick', (data) => {
     if (socket.data?.role !== 'player') return;
     const room = rooms.get(socket.data.room);
-    if (room) io.to(room.hostId).emit('tap', { playerId: socket.data.playerId });
+    if (!room) return;
+    const charId = String(data?.charId || '').slice(0, 20);
+    const color = String(data?.color || '').slice(0, 20);
+    io.to(room.hostId).emit('player:pick', { playerId: socket.data.playerId, charId, color });
   });
 
   // ---------- 斷線處理 ----------

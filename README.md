@@ -1,8 +1,9 @@
 # 朋友大頭賽跑（手機當搖桿）
 
-電腦／電視開主畫面，朋友用手機掃 QR Code 加入，用手機大按鈕連打讓自己的色塊往終點跑。
+電腦／電視開主畫面，朋友用手機掃 QR Code 加入，先選角色與衣服顏色，再用手機**左右兩顆按鈕交替連按**讓自己的角色往終點跑。
 
-- 人數不設上限，**每 4 人一組**輪流跑，全部組別跑完後依「抵達時間」結算總成績。
+- **每組最多 5 人**，人數不能整除時平均分組（10 人 → 5+5、11 人 → 4+4+3），全部組別跑完後依「抵達時間」結算總成績。
+- 角色可以重複，**衣服顏色同一場不能重複**（共 12 色，所以最多 12 人能上場）。
 - 後端只轉送訊息；**所有遊戲邏輯都在 `public/host.js`**。
 
 ## 專案結構
@@ -14,8 +15,9 @@ party-race/
 └── public/
     ├── host.html / host.js            # 主畫面（Phaser 3 畫跑道；遊戲邏輯都在這）
     ├── controller.html / controller.js # 手機控制器
-    ├── characters.json                # 角色資料（目前 4 個色塊）
-    └── img/                           # 之後放角色圖片
+    ├── characters.json                # 角色清單（4 個）與可選的衣服顏色（12 色）
+    ├── characters.js                  # 主畫面與手機共用：預設角色臉的畫法、載入圖檔
+    └── img/                           # 放角色圖：char1.png ~ char4.png（正方形、透明背景；沒放就用預設臉）
 ```
 
 ## 啟動
@@ -32,8 +34,8 @@ npm start
 ### 手機連線測試
 1. 電腦與手機連**同一個 Wi-Fi**。
 2. 電腦瀏覽器開終端機印出的網址（用區網 IP 那個），畫面會顯示房號與 QR Code。
-3. 手機掃 QR Code → 輸入暱稱 → 加入。
-4. 主畫面按「開始」。
+3. 手機掃 QR Code → 輸入暱稱 → 加入 → 選角色 → 選衣服顏色。
+4. 主畫面按「開始」（沒選好的人這場不會上場）。
 
 常見問題：
 - **手機打不開**：Windows 防火牆第一次會問 Node.js，請選「允許私人網路」。
@@ -45,8 +47,8 @@ npm start
 `lobby → countdown → racing → heatResult →（下一組 countdown …）→ result`
 
 1. 大廳：顯示房號、QR Code、已加入玩家，至少 1 人才能按「開始」。
-2. 依加入順序每 4 人一組，每組先 3、2、1、GO 倒數（手機按鈕鎖住）。
-3. 每按一下前進 `STEP_DISTANCE`。全員到終點，或第一名到後 10 秒，該組結束。
+2. 依加入順序平均分組（每組最多 5 人），每組先 3、2、1、GO 倒數（手機按鈕鎖住）。
+3. **左右交替**按才會前進，每下前進 `STEP_DISTANCE`；**左右同時按會跌倒**（`FALL_MS` 內按鍵無效）；**連按同一邊會原地跳一下**、這下不前進，之後 `SLOW_MS` 內每步只前進 `SLOW_FACTOR`。全員到終點，或第一名到後 10 秒，該組結束。
 4. 顯示該組結果，按「開始下一組」。沒輪到的手機會顯示等待。
 5. 最後一組完成後顯示總成績：先依抵達時間排序，沒跑完的排最後（依位置）。
 6. 「再來一場」：重新分組、從第 1 組開始倒數。
@@ -63,7 +65,9 @@ npm start
 |---|---|
 | `TRACK_LENGTH` | 跑道長度 |
 | `STEP_DISTANCE` | 每按一下前進距離 |
-| `PLAYERS_PER_HEAT` | 每組人數 |
+| `PLAYERS_PER_HEAT` | 每組最多幾人（會平均分） |
+| `FALL_MS` | 左右同時按 → 跌倒多久 |
+| `SLOW_MS` / `SLOW_FACTOR` | 連按同一邊 → 變慢多久／變慢後每步的比例 |
 | `COUNTDOWN_SECONDS` | 倒數秒數 |
 | `FINISH_TIMEOUT_MS` | 第一名到後等待多久結束該組 |
 | `HEAT_MAX_MS` | 保險：單組最長時間 |
@@ -74,9 +78,10 @@ npm start
 |---|---|---|
 | `host:create` | host → server | 建立房間；callback 回傳 `{ room, controllerUrl }` |
 | `player:join` | 手機 → server → host | `{ room, playerId, name }`（server 轉給 host 時為 `{ playerId, name }`）；手機有 callback `{ ok, error }` |
-| `game:state` | host → 所有手機 | `{ phase, heat, totalHeats }`，phase 為 `lobby / countdown / racing / heatResult / result` |
-| `tap` | 手機 → host | 按鍵（server 補上 `playerId`） |
-| `player:status` | host → 單一手機 | `{ playerId, status }`；status 含 `role / heat / color / finished / heatRank / overallRank / finishTime` |
+| `game:state` | host → 所有手機 | `{ phase, heat, totalHeats, taken }`（`taken` = 已被選走的顏色），phase 為 `lobby / countdown / racing / heatResult / result` |
+| `tap` | 手機 → host | `{ side }`，side 為 `L / R / both`（server 補上 `playerId`） |
+| `player:pick` | 手機 → server → host | `{ charId, color }`；host 檢查顏色有沒有被選走，結果用 `player:status` 回 |
+| `player:status` | host → 單一手機 | `{ playerId, status }`；status 含 `role / heat / picked / charName / color / finished / heatRank / overallRank / finishTime` |
 | `player:left` | server → host | `{ playerId }`，玩家斷線 |
 | `room:closed` | server → 手機 | host 離開，房間關閉 |
 

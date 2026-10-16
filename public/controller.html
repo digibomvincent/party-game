@@ -28,14 +28,36 @@
     #photoBtn.has { border: 4px solid #fff; color: transparent; }
     #joinError { color: #f87171; text-align: center; min-height: 24px; }
 
-    /* 遊戲畫面：上方一行文字、下方整個是大按鈕 */
+    /* 選角色 / 選顏色 */
+    #pickScreen { padding: 16px; gap: 10px; }
+    #pickTitle { text-align: center; font-size: 28px; font-weight: bold; margin-top: 6px; }
+    #pickMsg { text-align: center; color: #f87171; min-height: 22px; }
+    #pickGrid { flex: 1; display: grid; gap: 12px; align-content: center; }
+    #pickGrid.chars { grid-template-columns: 1fr 1fr; }
+    #pickGrid.colors { grid-template-columns: repeat(3, 1fr); }
+    .charBtn { background: #1e293b; border: 4px solid #334155; border-radius: 20px; color: #fff; padding: 10px 0;
+      font-size: 24px; font-family: inherit; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .charBtn:active { border-color: #fff; }
+    .colorBtn { aspect-ratio: 1; border-radius: 50%; border: 5px solid #1e293b; font-size: 34px; color: #fff;
+      display: flex; align-items: center; justify-content: center; }
+    .colorBtn:active { border-color: #fff; }
+    .colorBtn:disabled { opacity: .25; }
+    #pickBack { font-size: 22px; padding: 14px; border: 0; border-radius: 12px; background: #334155; color: #fff; font-family: inherit; }
+
+    /* 遊戲畫面：上方一行文字、下方是大按鈕（等待時一顆、比賽時左右兩顆） */
     #playScreen { padding: 0; }
     #msg { text-align: center; font-size: 26px; padding: 18px 12px; min-height: 100px;
       display: flex; align-items: center; justify-content: center; line-height: 1.4; }
-    #bigBtn { flex: 1; margin: 0 16px 24px; border: 0; border-radius: 28px; font-size: 56px; font-weight: bold;
-      color: #fff; background: var(--c, #3b82f6); font-family: inherit;
-      transition: transform .05s, filter .05s; touch-action: manipulation; }
-    #bigBtn.pressed { transform: scale(.95); filter: brightness(1.5); }   /* 按下時的視覺回饋 */
+    #repickBtn { align-self: center; font-size: 20px; padding: 10px 24px; border: 0; border-radius: 12px;
+      background: #334155; color: #fff; font-family: inherit; margin-bottom: 8px; }
+    .dot { display: inline-block; width: 1em; height: 1em; border-radius: 50%; vertical-align: -2px; border: 2px solid #fff; }
+    #bigBtn, #pad button { border: 0; border-radius: 28px; font-weight: bold; color: #fff; background: var(--c, #3b82f6);
+      font-family: inherit; transition: transform .05s, filter .05s; touch-action: none; }
+    #bigBtn { flex: 1; margin: 0 16px 24px; font-size: 56px; }
+    #pad { flex: 1; display: flex; gap: 12px; margin: 0 12px 24px; }
+    #pad button { flex: 1; font-size: 64px; opacity: .75; }
+    #pad button.next { opacity: 1; box-shadow: 0 0 0 6px rgba(255, 255, 255, .55) inset; }
+    #pad button.pressed, #bigBtn.pressed { transform: scale(.95); filter: brightness(1.5); }   /* 按下時的視覺回饋 */
     #bigBtn:disabled { background: #3a4a5a; color: #7b8a99; }
   </style>
 </head>
@@ -51,13 +73,27 @@
     <div id="joinError"></div>
   </div>
 
+  <!-- 選角色、選衣服顏色 -->
+  <div id="pickScreen" class="screen hidden">
+    <div id="pickTitle"></div>
+    <div id="pickMsg"></div>
+    <div id="pickGrid"></div>
+    <button id="pickBack" class="hidden">← 重選角色</button>
+  </div>
+
   <!-- 遊戲畫面 -->
   <div id="playScreen" class="screen hidden">
     <div id="msg"></div>
+    <button id="repickBtn" class="hidden">改角色 / 顏色</button>
     <button id="bigBtn" disabled>等待中</button>
+    <div id="pad" class="hidden">
+      <button id="btnL">左</button>
+      <button id="btnR">右</button>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="characters.js"></script>
   <script src="controller.js"></script>
 </body>
 </html>

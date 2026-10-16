@@ -7,7 +7,10 @@
 // ---------- 遊戲數值（要調整手感改這裡）----------
 const TRACK_LENGTH = 1000;       // 跑道長度（抽象單位）
 const STEP_DISTANCE = 25;        // 每按一下前進的距離（1000/25 = 要按 40 下）
-const PLAYERS_PER_HEAT = 4;      // 每組幾人一起跑
+const PLAYERS_PER_HEAT = 5;      // 每組最多幾人一起跑（人數不能整除時會平均分，例如 10 人 → 5+5、11 人 → 4+4+3）
+const FALL_MS = 1200;            // 左右鍵同時按 → 跌倒，這段時間內按鍵無效
+const SLOW_MS = 1000;            // 連按同一邊 → 跳一下，之後這段時間內前進變慢
+const SLOW_FACTOR = 0.5;         // 變慢時每步只前進這個比例
 const COUNTDOWN_SECONDS = 3;     // 倒數秒數
 const FINISH_TIMEOUT_MS = 10000; // 第一名抵達後，最多再等幾毫秒就結束這一組
 const HEAT_MAX_MS = 90000;       // 保險：一組最久跑多久（避免沒人到終點卡住）
@@ -15,7 +18,8 @@ const HEAT_MAX_MS = 90000;       // 保險：一組最久跑多久（避免沒�
 // 畫面排版（Phaser 畫布大小 1280x720）
 const CANVAS_W = 1280, CANVAS_H = 720;
 const LANE_COUNT = PLAYERS_PER_HEAT;
-const LANE_TOP = 100, LANE_HEIGHT = 140;
+const LANE_TOP = 90, LANE_HEIGHT = 120;      // 一組最多 5 條跑道
+const CHAR_SCALE = 0.85;         // 角色整體縮放（配合跑道高度）
 const START_X = 150, FINISH_X = 1140, BLOCK_SIZE = 70;
 const HEAD_SIZE = 60;            // 大頭顯示大小（像素）
 const BODY_SCALE = 0.9;          // 身體 sprite 縮放
@@ -24,8 +28,9 @@ const PHOTO_PX = 128;            // 大頭貼圖的解析度
 
 // ---------- 遊戲狀態 ----------
 const socket = io();
-const players = new Map();   // playerId -> { id, name, online, heat, lane, char, pos, finished, finishTime, heatRank, overallRank }
+const players = new Map();   // playerId -> { id, name, online, charId, color, photo, heat, lane, pos, 連按/跌倒狀態, finished, finishTime, heatRank, overallRank }
 let characters = [];         // 角色資料（characters.json）
+let colors = [];             // 可選的衣服顏色（hex 字串），每個顏色同一場只能一個人選
 let phase = 'lobby';
 let heats = [];              // 每一組的 playerId 陣列，例如 [[a,b,c,d],[e,f]]
 let currentHeat = -1;        // 目前跑第幾組（從 0 開始）
@@ -68,6 +73,21 @@ function loadHead(p, photo) {
   const img = new Image();
   img.onload = () => makeHeadTexture(p, img);
   img.src = photo;
+}
+
+// 角色大頭貼圖（key = 'char-角色id'）：先畫預設臉，有 public/img 的圖檔就換成圖檔
+function makeCharHead(c, i) {
+  const key = 'char-' + c.id;
+  const tex = game.textures.exists(key) ? game.textures.get(key) : game.textures.createCanvas(key, PHOTO_PX, PHOTO_PX);
+  const g = tex.getContext();
+  g.clearRect(0, 0, PHOTO_PX, PHOTO_PX);
+  CharArt.drawFace(g, PHOTO_PX, i);
+  tex.refresh();
+  CharArt.loadImage(c, (img) => {
+    g.clearRect(0, 0, PHOTO_PX, PHOTO_PX);
+    CharArt.drawImage(g, img, PHOTO_PX);
+    tex.refresh();
+  });
 }
 
 // 畫一格跑步動作（t = 這格在步伐週期中的角度）
@@ -137,7 +157,7 @@ class RaceScene extends Phaser.Scene {
         i % 2 ? 0x24384d : 0x2c4560);
     }
     // 起跑線與終點線（終點線畫成黑白格）
-    this.add.rectangle(START_X - BLOCK_SIZE / 2 - 10, CANVAS_H / 2, 4, LANE_COUNT * LANE_HEIGHT, 0xffffff);
+    this.add.rectangle(START_X - BLOCK_SIZE / 2 - 10, LANE_TOP + LANE_COUNT * LANE_HEIGHT / 2, 4, LANE_COUNT * LANE_HEIGHT, 0xffffff);
     const finishLineX = FINISH_X + BLOCK_SIZE / 2 + 10;
     for (let r = 0; r < LANE_COUNT * LANE_HEIGHT / 20; r++) {
       this.add.rectangle(finishLineX + (r % 2 ? 10 : 0), LANE_TOP + 10 + r * 20, 10, 20, 0xffffff);
@@ -156,16 +176,17 @@ class RaceScene extends Phaser.Scene {
     this.sprites.forEach((s) => { s.c.destroy(); s.label.destroy(); });
     this.sprites = view.racers.map((p) => {
       const y = LANE_TOP + p.lane * LANE_HEIGHT + LANE_HEIGHT / 2;
-      const color = p.char.color;
+      const color = p.color;
       const bodyKey = ensureBody(this, color);
       const body = this.add.sprite(0, 0, bodyKey, 'f0').setScale(BODY_SCALE);
       // 脖子位置在身體 sprite 上方；大頭放在脖子上
       const headY = (24 - BODY_FRAME_H / 2) * BODY_SCALE - HEAD_SIZE / 2 + 4;
-      const head = this.add.image(0, headY, 'head-' + p.id)
+      const head = this.add.image(0, headY, p.photo ? 'head-' + p.id : 'char-' + p.charId)
         .setDisplaySize(HEAD_SIZE, HEAD_SIZE);
-      const c = this.add.container(START_X, y + 28, [body, head]);
-      const label = this.add.text(START_X, y - 64, p.name, { fontSize: '24px', color: '#fff' }).setOrigin(0.5);
-      return { p, c, body, head, label, color, baseY: y + 28, headY, hop: 0, lastPos: p.pos, celebrated: false };
+      const c = this.add.container(START_X, y + 28 * CHAR_SCALE, [body, head]).setScale(CHAR_SCALE);
+      const label = this.add.text(START_X, y - 52, p.name, { fontSize: '22px', color: '#fff' }).setOrigin(0.5);
+      return { p, c, body, head, label, color, baseY: y + 28 * CHAR_SCALE, headY, hop: 0, jump: 0, fallY: 0, falling: false,
+        lastPos: p.pos, lastFallAt: p.fallAt, lastHopAt: p.hopAt, celebrated: false };
     });
     this.version = view.version;
   }
@@ -176,6 +197,33 @@ class RaceScene extends Phaser.Scene {
     s.squashing = true;
     this.tweens.add({ targets: s.body, scaleX: BODY_SCALE * 1.12, scaleY: BODY_SCALE * 0.88, duration: 70, yoyo: true,
       onComplete: () => { s.squashing = false; s.body.setScale(BODY_SCALE); } });
+  }
+
+  // 角色頭上飄一個小表情
+  fx(s, emoji) {
+    const t = this.add.text(s.c.x, s.baseY - 85, emoji, { fontSize: '30px' }).setOrigin(0.5).setDepth(6);
+    this.tweens.add({ targets: t, y: t.y - 30, alpha: 0, duration: 700, onComplete: () => t.destroy() });
+  }
+
+  // 左右同時按：整個人往前趴倒，過一下再站起來
+  fall(s) {
+    if (s.falling) return;
+    s.falling = true;
+    s.body.anims.stop(); s.body.setFrame('f0');
+    this.fx(s, '💫');
+    this.tweens.add({ targets: s.c, angle: 80, duration: 150, ease: 'Quad.easeIn' });
+    this.tweens.add({ targets: s, fallY: 22, duration: 150 });
+    this.time.delayedCall(FALL_MS - 200, () => {
+      this.tweens.add({ targets: s.c, angle: 0, duration: 200 });
+      this.tweens.add({ targets: s, fallY: 0, duration: 200, onComplete: () => { s.falling = false; } });
+    });
+  }
+
+  // 連按同一邊：原地跳一下（接著會變慢）
+  hop(s) {
+    if (s.falling) return;
+    this.fx(s, '💦');
+    this.tweens.add({ targets: s, jump: 18, duration: 110, yoyo: true, ease: 'Sine.easeOut' });
   }
 
   // 抵達終點的慶祝動畫
@@ -203,7 +251,7 @@ class RaceScene extends Phaser.Scene {
       s.label.x = s.c.x;
       s.label.setText(s.p.finished ? `${s.p.name}  第${s.p.heatRank}名` : s.p.name);
       // 在移動就播跑步動畫（越快播越快），停下來就站著
-      const running = Math.abs(dx) > 0.6 && !s.p.finished;
+      const running = Math.abs(dx) > 0.6 && !s.p.finished && !s.falling;
       if (running) {
         s.body.anims.timeScale = Phaser.Math.Clamp(Math.abs(dx) / 3, 0.6, 3);
         if (!s.body.anims.isPlaying) s.body.play('run-' + s.color);
@@ -216,15 +264,18 @@ class RaceScene extends Phaser.Scene {
       if (running) {
         s.head.y = s.headY - Math.abs(Math.sin(t * 8 * s.body.anims.timeScale)) * 3;
         s.head.angle = Math.sin(t * 8 * s.body.anims.timeScale) * (3 + speed * 2);
-      } else if (!s.p.finished) {
+      } else if (!s.p.finished && !s.falling) {
         s.head.y = s.headY; s.head.angle = 0;
       }
       // 每按一下：身體壓扁彈回
       if (s.p.pos > s.lastPos && !s.p.finished) this.squash(s);
+      // 跌倒（左右同時按）／跳一下（連按同一邊）
+      if (s.p.fallAt !== s.lastFallAt) { s.lastFallAt = s.p.fallAt; this.fall(s); }
+      if (s.p.hopAt !== s.lastHopAt) { s.lastHopAt = s.p.hopAt; this.hop(s); }
       s.lastPos = s.p.pos;
       // 抵達終點：慶祝（跳、轉頭、撒花）
       if (s.p.finished && !s.celebrated) this.celebrate(s);
-      s.c.y = s.baseY - s.hop;
+      s.c.y = s.baseY - s.hop - s.jump + s.fallY;
     }
   }
 }
@@ -253,10 +304,16 @@ function onlinePlayers() { return [...players.values()].filter((p) => p.online);
 // ============================================================
 // 對外溝通：廣播階段、傳個人狀態
 // ============================================================
+// 廣播目前階段 + 已被選走的顏色給所有手機
+function takenColors() { return [...players.values()].map((p) => p.color).filter(Boolean); }
+function broadcastState() {
+  socket.emit('game:state', { phase, heat: currentHeat + 1, totalHeats: heats.length, taken: takenColors() });
+}
+
 // 切換階段：更新畫面面板 + 廣播給所有手機
 function setPhase(next) {
   phase = next;
-  socket.emit('game:state', { phase, heat: currentHeat + 1, totalHeats: heats.length });
+  broadcastState();
   $('lobby').classList.toggle('hidden', phase !== 'lobby');
   $('heatPanel').classList.toggle('hidden', phase !== 'heatResult');
   $('finalPanel').classList.toggle('hidden', phase !== 'result');
@@ -270,7 +327,9 @@ function statusOf(p) {
     role: p.heat === null ? 'late' : (p.heat === currentHeat ? 'racer' : 'waiting'), // late = 本場中途才加入
     heat: p.heat === null ? null : p.heat + 1,
     totalHeats: heats.length,
-    color: p.char ? p.char.color : '#888888',
+    picked: !!(p.charId && p.color),
+    charName: (characters.find((c) => c.id === p.charId) || {}).name || '',
+    color: p.color || '#888888',
     finished: p.finished,
     heatRank: p.heatRank,
     overallRank: p.overallRank,
@@ -283,15 +342,28 @@ function sendAllStatus() { players.forEach((p) => p.online && sendStatus(p)); }
 // ============================================================
 // 大廳
 // ============================================================
+// 把每組人數平均分配（例如 10 人 → [5,5]、11 人 → [4,4,3]）
+function heatSizes(n) {
+  const heatCount = Math.ceil(n / PLAYERS_PER_HEAT);
+  if (!heatCount) return [];
+  const base = Math.floor(n / heatCount), extra = n % heatCount;
+  return Array.from({ length: heatCount }, (_, i) => base + (i < extra ? 1 : 0));
+}
 function renderLobby() {
   const list = onlinePlayers();
+  const ready = list.filter((p) => p.color);
   $('count').textContent = list.length;
-  $('playerList').innerHTML = list.map((p) => `<li>${escapeHtml(p.name)}</li>`).join('');
-  $('startBtn').disabled = list.length < 1;
-  const heatCount = Math.ceil(list.length / PLAYERS_PER_HEAT);
-  $('info').textContent = list.length
-    ? `共 ${list.length} 人，將分成 ${heatCount} 組（每組最多 ${PLAYERS_PER_HEAT} 人）`
-    : '用手機掃 QR Code 加入';
+  $('playerList').innerHTML = list.map((p) => {
+    const c = characters.find((x) => x.id === p.charId);
+    return p.color
+      ? `<li><span style="color:${p.color}">●</span> ${escapeHtml(p.name)} <small>${c ? c.name : ''}</small></li>`
+      : `<li style="opacity:.6">${escapeHtml(p.name)} <small>選角色中…</small></li>`;
+  }).join('');
+  $('startBtn').disabled = ready.length < 1;
+  const sizes = heatSizes(ready.length);
+  let text = list.length ? `已選好 ${ready.length} 人，將分成 ${sizes.length} 組（${sizes.join('、')} 人）` : '用手機掃 QR Code 加入';
+  if (ready.length < list.length) text += `；還有 ${list.length - ready.length} 人沒選好，不會上場`;
+  $('info').textContent = text;
 }
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -304,20 +376,22 @@ function escapeHtml(s) {
 function startGame() {
   // 離線的人這場不參加，直接移出名單
   for (const [id, p] of players) if (!p.online) players.delete(id);
-  const list = [...players.values()];
+  const list = [...players.values()].filter((p) => p.color);   // 只有選好角色與顏色的人上場
   if (!list.length) return;
 
   players.forEach((p) => {
-    p.heat = null; p.lane = 0; p.char = null; p.pos = 0;
+    p.heat = null; p.lane = 0; p.pos = 0;
+    p.lastSide = null; p.stunUntil = 0; p.slowUntil = 0; p.fallAt = 0; p.hopAt = 0;
     p.finished = false; p.finishTime = null; p.heatRank = null; p.overallRank = null;
   });
   heats = [];
-  for (let i = 0; i < list.length; i += PLAYERS_PER_HEAT) {
-    const group = list.slice(i, i + PLAYERS_PER_HEAT);
+  let i = 0;
+  for (const size of heatSizes(list.length)) {
+    const group = list.slice(i, i + size);
+    i += size;
     group.forEach((p, lane) => {
       p.heat = heats.length;
       p.lane = lane;                                   // 第幾條跑道
-      p.char = characters[lane % characters.length];   // 角色（色塊）依跑道決定
     });
     heats.push(group.map((p) => p.id));
   }
@@ -354,17 +428,32 @@ function beginRace() {
   later(endHeat, HEAT_MAX_MS); // 保險計時器
 }
 
-// 收到某位玩家按鍵
-function onTap(playerId) {
+// 收到某位玩家按鍵（side：L 左 / R 右 / both 兩邊同時按）
+//   - 左右交替才會前進
+//   - 同時按 → 跌倒，FALL_MS 內按鍵無效
+//   - 連按同一邊 → 這下不前進，原地跳一下，之後 SLOW_MS 內每步只前進 SLOW_FACTOR
+function onTap(playerId, side) {
   const p = players.get(playerId);
   if (!p || phase !== 'racing' || p.heat !== currentHeat || p.finished) return;
+  const now = Date.now();
+  if (now < p.stunUntil) return;                      // 跌倒中
+  if (side === 'both') {
+    p.stunUntil = now + FALL_MS; p.lastSide = null; p.fallAt = now;
+    return;
+  }
+  if (side === p.lastSide) {                          // 連按同一邊
+    p.slowUntil = now + SLOW_MS; p.hopAt = now;
+    return;
+  }
+  p.lastSide = side;
 
-  p.pos = Math.min(TRACK_LENGTH, p.pos + STEP_DISTANCE);
+  const step = now < p.slowUntil ? STEP_DISTANCE * SLOW_FACTOR : STEP_DISTANCE;
+  p.pos = Math.min(TRACK_LENGTH, p.pos + step);
   if (p.pos < TRACK_LENGTH) return;
 
   // 抵達終點：記錄時間與本組名次
   p.finished = true;
-  p.finishTime = Date.now() - goTime;
+  p.finishTime = now - goTime;
   p.heatRank = heatPlayers().filter((x) => x.finished).length;
   sendStatus(p);
 
@@ -436,12 +525,15 @@ socket.on('player:join', ({ playerId, name, photo }) => {
   if (p) {
     p.name = name; p.online = true; // 同一個 playerId = 同一個人，沿用原本資料
   } else {
-    p = { id: playerId, name, online: true, heat: null, lane: 0, char: null, pos: 0,
+    p = { id: playerId, name, online: true, heat: null, lane: 0, charId: null, color: null, pos: 0,
+      lastSide: null, stunUntil: 0, slowUntil: 0, fallAt: 0, hopAt: 0,
       finished: false, finishTime: null, heatRank: null, overallRank: null };
     players.set(playerId, p);
   }
-  loadHead(p, photo);
+  p.photo = photo || '';
+  if (p.photo) loadHead(p, p.photo);
   sendStatus(p);
+  broadcastState();
   renderLobby();
 });
 
@@ -449,14 +541,30 @@ socket.on('player:join', ({ playerId, name, photo }) => {
 socket.on('player:left', ({ playerId }) => {
   const p = players.get(playerId);
   if (!p) return;
-  if (phase === 'lobby') players.delete(playerId); // 大廳直接移除
+  if (phase === 'lobby') { players.delete(playerId); broadcastState(); } // 大廳直接移除（顏色也釋出）
   else p.online = false;                            // 遊戲中保留位置，只標示離線
   renderLobby();
   checkHeatDone();
 });
 
 // 玩家按鍵
-socket.on('tap', ({ playerId }) => onTap(playerId));
+socket.on('tap', ({ playerId, side }) => onTap(playerId, side));
+
+// 玩家選角色與衣服顏色：角色可重複，顏色不能重複（先選先贏）
+socket.on('player:pick', ({ playerId, charId, color }) => {
+  const p = players.get(playerId);
+  if (!p) return;
+  const valid = characters.some((c) => c.id === charId) && colors.includes(color);
+  const taken = [...players.values()].some((o) => o !== p && o.color === color);
+  if (!valid || taken) {
+    socket.emit('player:status', { playerId, status: { ...statusOf(p), pickError: true } });
+    return;
+  }
+  p.charId = charId; p.color = color;
+  sendStatus(p);
+  broadcastState();      // 通知所有手機這個顏色被選走了
+  renderLobby();
+});
 
 // ============================================================
 // 啟動：讀角色資料 → 建立房間 → 顯示房號與 QR Code
@@ -465,7 +573,10 @@ let created = false;
 socket.on('connect', async () => {
   if (created) { $('info').textContent = '⚠ 連線中斷過，請重新整理頁面建立新房間'; return; }
   created = true;
-  characters = await (await fetch('characters.json')).json();
+  const cfg = await (await fetch('characters.json')).json();
+  characters = cfg.characters;
+  colors = cfg.colors.map((c) => c.hex);
+  characters.forEach(makeCharHead);
   socket.emit('host:create', ({ room, controllerUrl }) => {
     roomCode = room;
     $('roomCode').textContent = room;

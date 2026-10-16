@@ -1,9 +1,13 @@
 // ============================================================
 // controller.js － 手機控制器
-// 只負責：加入房間、按鈕送 tap、依 host 傳來的狀態顯示文字
+// 流程：加入房間 → 選角色 → 選衣服顏色 → 等開始 → 左右交替連按
+// 只負責：送出選擇與按鍵，依 host 傳來的狀態顯示畫面（遊戲規則都在 host.js）
 // ============================================================
 const socket = io();
 const $ = (id) => document.getElementById(id);
+
+const PHOTO_ENABLED = false; // 大頭照功能先隱藏；要開回來改成 true
+const SIMUL_MS = 80;         // 左右鍵在這個時間內先後按下，視為「同時按」
 
 // ---------- 身分：playerId 存 localStorage，重整後還是同一個人 ----------
 // 注意：區網 http 不是安全環境，不能用 crypto.randomUUID，所以自己組一個隨機字串
@@ -19,23 +23,33 @@ const playerId = getPlayerId();
 
 let joined = false;     // 是否已加入（斷線重連時要重新送 player:join）
 let session = null;     // { room, name }
-let gameState = { phase: 'lobby', heat: 0, totalHeats: 0 };  // host 廣播的階段
-let status = null;                                            // host 傳給我的個人狀態
+let gameState = { phase: 'lobby', heat: 0, totalHeats: 0, taken: [] };  // host 廣播的階段、已被選走的顏色
+let status = null;                                                       // host 傳給我的個人狀態
+let cfg = { characters: [], colors: [] };                                // characters.json
+let pickStep = 'char';  // 選角色畫面目前在哪一步：char（選角色）/ color（選顏色）
+let pickedChar = null;  // 這次選的角色 id
+let repicking = false;  // 已選過，但按了「改角色 / 顏色」
+let pickMsg = '';
 
-// ---------- 加入 ----------
-const params = new URLSearchParams(location.search);
-$('roomInput').value = params.get('room') || '';           // 房號自動帶入
-$('nameInput').value = localStorage.getItem('party-race-name') || '';
+fetch('characters.json').then((r) => r.json()).then((d) => { cfg = d; render(); });
 
-// ---------- 大頭照：拍照 / 選圖 → 置中裁成正方形 → 縮成 128px JPEG，存 localStorage ----------
+// ---------- 畫面切換：加入 / 選角色 / 遊戲，一次只顯示一個 ----------
+function show(name) {
+  $('joinScreen').classList.toggle('hidden', name !== 'join');
+  $('pickScreen').classList.toggle('hidden', name !== 'pick');
+  $('playScreen').classList.toggle('hidden', name !== 'play');
+}
+
+// ---------- 大頭照（目前隱藏）：拍照 / 選圖 → 置中裁成正方形 → 縮成 128px JPEG，存 localStorage ----------
 const PHOTO_SIZE = 128;
 const PHOTO_KEY = 'party-race-photo';
-function getPhoto() { return localStorage.getItem(PHOTO_KEY) || ''; }
+function getPhoto() { return PHOTO_ENABLED ? (localStorage.getItem(PHOTO_KEY) || '') : ''; }
 function showPhoto() {
   const photo = getPhoto();
   $('photoBtn').style.backgroundImage = photo ? `url(${photo})` : '';
   $('photoBtn').classList.toggle('has', !!photo);
 }
+$('photoBtn').classList.toggle('hidden', !PHOTO_ENABLED);
 showPhoto();
 $('photoBtn').onclick = () => $('photoInput').click();
 $('photoInput').onchange = (e) => {
@@ -55,6 +69,11 @@ $('photoInput').onchange = (e) => {
   e.target.value = ''; // 同一張照片可再選一次
 };
 
+// ---------- 加入 ----------
+const params = new URLSearchParams(location.search);
+$('roomInput').value = params.get('room') || '';           // 房號自動帶入
+$('nameInput').value = localStorage.getItem('party-race-name') || '';
+
 function join(room, name) {
   socket.emit('player:join', { room, playerId, name, photo: getPhoto() }, (res) => {
     if (res && res.ok) {
@@ -62,16 +81,14 @@ function join(room, name) {
       session = { room, name };
       localStorage.setItem('party-race-name', name);
       localStorage.setItem('party-race-session', JSON.stringify(session));
-      $('joinScreen').classList.add('hidden');
-      $('playScreen').classList.remove('hidden');
+      show('play');
       render();
       requestWakeLock();
     } else {
       // 加入失敗（房號錯 / host 已關掉）：回到加入畫面
       joined = false;
       localStorage.removeItem('party-race-session');
-      $('joinScreen').classList.remove('hidden');
-      $('playScreen').classList.add('hidden');
+      show('join');
       $('joinError').textContent = (res && res.error) || '加入失敗';
     }
   });
@@ -95,32 +112,99 @@ socket.on('connect', () => {
 
 // ---------- 接收 host 的訊息 ----------
 socket.on('game:state', (s) => { gameState = s; render(); });
-socket.on('player:status', (s) => { status = s; render(); });
+socket.on('player:status', (s) => {
+  status = s;
+  if (s.pickError) {            // 顏色剛被別人選走：回到選顏色那一步
+    repicking = true; pickStep = 'color'; pickMsg = '這個顏色剛被選走了，換一個吧';
+  }
+  render();
+});
 socket.on('room:closed', () => {
   joined = false;
   localStorage.removeItem('party-race-session');
+  show('play');
   setScreen('房間已關閉', '已結束', false);
 });
 
+// ---------- 選角色、選衣服顏色 ----------
+function renderPick() {
+  const grid = $('pickGrid');
+  grid.innerHTML = '';
+  $('pickMsg').textContent = pickMsg;
+  $('pickBack').classList.toggle('hidden', pickStep !== 'color');
+  grid.className = pickStep === 'char' ? 'chars' : 'colors';
+
+  if (pickStep === 'char') {
+    $('pickTitle').textContent = '選你的角色';
+    cfg.characters.forEach((c, i) => {
+      const b = document.createElement('button');
+      b.className = 'charBtn';
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 120;
+      cv.style.cssText = 'width:100%;max-width:120px;height:auto';
+      CharArt.drawFace(cv.getContext('2d'), 120, i);           // 先畫預設臉
+      CharArt.loadImage(c, (img) => {                           // 有圖檔就換成圖檔
+        const g = cv.getContext('2d');
+        g.clearRect(0, 0, 120, 120);
+        CharArt.drawImage(g, img, 120);
+      });
+      b.append(cv, c.name);
+      b.onclick = () => { pickedChar = c.id; pickStep = 'color'; pickMsg = ''; renderPick(); };
+      grid.append(b);
+    });
+  } else {
+    $('pickTitle').textContent = '選衣服顏色';
+    const mine = status && status.color;
+    cfg.colors.forEach((c) => {
+      const b = document.createElement('button');
+      b.className = 'colorBtn';
+      b.style.background = c.hex;
+      const taken = (gameState.taken || []).includes(c.hex) && c.hex !== mine;   // 別人選走的不能選
+      b.disabled = taken;
+      if (taken) b.textContent = '✕';
+      b.onclick = () => {
+        socket.emit('player:pick', { charId: pickedChar, color: c.hex });
+        repicking = false; pickMsg = ''; pickStep = 'char';
+      };
+      grid.append(b);
+    });
+  }
+}
+$('pickBack').onclick = () => { pickStep = 'char'; pickMsg = ''; renderPick(); };
+$('repickBtn').onclick = () => { repicking = true; pickStep = 'char'; pickMsg = ''; render(); };
+
 // ---------- 依狀態更新畫面 ----------
 function setScreen(msg, btnText, enabled, color) {
-  $('msg').innerHTML = msg;
+  $('msg').innerHTML = `<div>${msg}</div>`;
+  // 等待、結果時顯示一顆大按鈕（鎖住）；比賽中改成左右兩顆
+  $('pad').classList.toggle('hidden', !enabled);
+  $('bigBtn').classList.toggle('hidden', enabled);
   $('bigBtn').textContent = btnText;
-  $('bigBtn').disabled = !enabled;
-  if (color) $('bigBtn').style.setProperty('--c', color);
+  $('bigBtn').disabled = true;
+  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR')]) el.style.setProperty('--c', color);
+  if (!enabled) { lastSide = null; updateNext(); }
 }
 
 function render() {
   if (!joined) return;
   const { phase, heat: cur, totalHeats } = gameState;
   const me = status;
-  if (!me || phase === 'lobby') { setScreen('等主持人按開始…', '等待中', false); return; }
+  if (!me) { show('play'); setScreen('連線中…', '等待中', false); return; }
+
+  // 還沒選角色 / 顏色，或按了「改角色 / 顏色」：顯示選擇畫面
+  if (!me.picked || repicking) {
+    show('pick'); renderPick(); return;
+  }
+  show('play');
+  $('repickBtn').classList.toggle('hidden', !(phase === 'lobby' || me.role === 'late'));
 
   const color = me.color;
   const time = me.finishTime != null ? `（${(me.finishTime / 1000).toFixed(2)} 秒）` : '';
+  const who = `你是 <b>${me.charName || ''}</b> <span class="dot" style="background:${color}"></span>`;
 
+  if (phase === 'lobby') { setScreen(`${who}<br>等主持人按開始…`, '等待中', false, color); return; }
   if (me.role === 'late') {            // 本場開始後才加入
-    setScreen('本場已經開始了<br>下一場再一起跑！', '等待中', false); return;
+    setScreen('本場已經開始了<br>下一場再一起跑！', '等待中', false, color); return;
   }
   if (phase === 'result') {            // 全部跑完：顯示總名次
     setScreen(me.finished ? `全部結束！你的總名次` + time : '全部結束！你沒跑完',
@@ -132,29 +216,52 @@ function render() {
       me.finished ? `第 ${me.heatRank} 名` : '沒跑完', false, color); return;
   }
   if (mine > cur) {                    // 還沒輪到我
-    setScreen(`你在第 ${mine} / ${totalHeats} 組<br>現在跑第 ${cur} 組，請準備`, '等待中', false); return;
+    setScreen(`你在第 ${mine} / ${totalHeats} 組<br>現在跑第 ${cur} 組，請準備`, '等待中', false, color); return;
   }
   // 以下：輪到我這組
-  if (phase === 'countdown') { setScreen('預備…', '預備', false, color); return; }
+  if (phase === 'countdown') { setScreen('預備…<br>左、右、左、右 交替按！', '預備', false, color); return; }
   if (phase === 'racing') {
     if (me.finished) setScreen(`到達終點！本組第 ${me.heatRank} 名${time}`, `第 ${me.heatRank} 名`, false, color);
-    else setScreen('用力連打！', '連打！', true, color);
+    else setScreen('左右交替按！<br><small>別同時按、別連按同一邊</small>', '', true, color);
   }
 }
 
-// ---------- 大按鈕：按下送 tap ----------
-const btn = $('bigBtn');
-btn.addEventListener('pointerdown', (e) => {
+// ---------- 左右兩顆按鈕：按下送 tap（side = L / R；兩顆幾乎同時按下送 both）----------
+const lastDown = { L: 0, R: 0 };  // 左右鍵最近一次按下的時間
+let lastSide = null;              // 我上一次按的是哪一邊（用來提示下一顆該按哪邊）
+
+function updateNext() {
+  // 提示：剛按完左邊，右邊就亮起來
+  $('btnL').classList.toggle('next', lastSide === 'R');
+  $('btnR').classList.toggle('next', lastSide === 'L');
+}
+function vibrate(p) { if (navigator.vibrate) navigator.vibrate(p); } // 不支援的手機（如 iPhone）就略過
+
+function press(side, e) {
   e.preventDefault();
-  if (btn.disabled) return;
+  const btn = side === 'L' ? $('btnL') : $('btnR');
   btn.classList.add('pressed');
-  socket.emit('tap');
-  if (navigator.vibrate) navigator.vibrate(20); // 不支援的手機（如 iPhone）就略過
-});
-const release = () => btn.classList.remove('pressed');
-btn.addEventListener('pointerup', release);
-btn.addEventListener('pointercancel', release);
-btn.addEventListener('pointerleave', release);
+  const now = performance.now(), other = side === 'L' ? 'R' : 'L';
+  if (now - lastDown[other] < SIMUL_MS) {   // 兩邊同時按：會跌倒
+    socket.emit('tap', { side: 'both' });
+    vibrate([80, 40, 80]);
+    lastDown.L = lastDown.R = 0;
+    lastSide = null; updateNext();
+    return;
+  }
+  lastDown[side] = now;
+  lastSide = side; updateNext();
+  socket.emit('tap', { side });
+  vibrate(20);
+}
+for (const [side, id] of [['L', 'btnL'], ['R', 'btnR']]) {
+  const btn = $(id);
+  btn.addEventListener('pointerdown', (e) => press(side, e));
+  const release = () => btn.classList.remove('pressed');
+  btn.addEventListener('pointerup', release);
+  btn.addEventListener('pointercancel', release);
+  btn.addEventListener('pointerleave', release);
+}
 document.addEventListener('contextmenu', (e) => e.preventDefault()); // 禁止長按選單
 
 // ---------- Wake Lock：讓螢幕不要暗掉（不支援就略過）----------

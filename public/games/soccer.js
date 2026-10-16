@@ -197,7 +197,8 @@ const SoccerGame = (() => {
         s.shadow.setPosition(f.x, f.y + 2);
         s.label.setPosition(f.x, f.y - footToBody - (CharRender.HEAD_SIZE * 0.5 - s.headY) * CHAR_SCALE - 16).setDepth(2000);
         s.c.setAlpha(f.p.online ? 1 : 0.4);
-        s.body.setFlipX(f.face < 0);                                   // 往左跑就翻轉身體（大頭不翻）
+        s.body.setFlipX(f.face < 0);                                   // 往左跑就把身體和大頭一起鏡射
+        s.head.setFlipX(f.face < 0);
         if (speed > 25) {
           s.body.anims.timeScale = Phaser.Math.Clamp(speed / 140, 0.6, 2.4);
           if (!s.body.anims.isPlaying) s.body.play('run-' + s.color);

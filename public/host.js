@@ -1,7 +1,7 @@
 // ============================================================
 // host.js － 主畫面。所有遊戲邏輯都在這裡：
-//   玩家名單、分組、倒數、位置、名次、階段切換
-// 階段 phase：lobby → countdown → racing → heatResult → (下一組 countdown ...) → result
+//   遊戲大廳（選遊戲、玩家名單）+ 各遊戲的流程（目前只有「跑步」）
+// 階段 phase：lobby（遊戲大廳）→ countdown → racing → heatResult → (下一組 countdown ...) → result → 回 lobby
 // ============================================================
 
 // ---------- 遊戲數值（要調整手感改這裡）----------
@@ -31,6 +31,14 @@ const socket = io();
 const players = new Map();   // playerId -> { id, name, online, charId, color, photo, heat, lane, pos, 連按/跌倒狀態, finished, finishTime, heatRank, overallRank }
 let characters = [];         // 角色資料（characters.json）
 let colors = [];             // 可選的衣服顏色（hex 字串），每個顏色同一場只能一個人選
+// ---------- 遊戲清單（大廳左欄）----------
+// 要新增遊戲：在這裡加一項，並提供 start()（按「開始」時呼叫）。enabled:false 的會顯示「即將推出」。
+const GAMES = [
+  { id: 'race',   icon: '🏃', name: '跑步', desc: '左右交替連按，衝向終點！', enabled: true,  start: () => startGame() },
+  { id: 'soccer', icon: '⚽', name: '足球', desc: '用大頭頂球進球，分隊對戰', enabled: false, badge: '即將推出' },
+];
+let selectedGame = 'race';   // 大廳目前選的遊戲
+let currentGame = null;      // 正在玩的遊戲（在大廳時是 null）
 let phase = 'lobby';
 let heats = [];              // 每一組的 playerId 陣列，例如 [[a,b,c,d],[e,f]]
 let currentHeat = -1;        // 目前跑第幾組（從 0 開始）
@@ -307,7 +315,7 @@ function onlinePlayers() { return [...players.values()].filter((p) => p.online);
 // 廣播目前階段 + 已被選走的顏色給所有手機
 function takenColors() { return [...players.values()].map((p) => p.color).filter(Boolean); }
 function broadcastState() {
-  socket.emit('game:state', { phase, heat: currentHeat + 1, totalHeats: heats.length, taken: takenColors() });
+  socket.emit('game:state', { phase, game: currentGame, heat: currentHeat + 1, totalHeats: heats.length, taken: takenColors() });
 }
 
 // 切換階段：更新畫面面板 + 廣播給所有手機
@@ -349,19 +357,51 @@ function heatSizes(n) {
   const base = Math.floor(n / heatCount), extra = n % heatCount;
   return Array.from({ length: heatCount }, (_, i) => base + (i < extra ? 1 : 0));
 }
+function renderGames() {
+  $('gameList').innerHTML = GAMES.map((g) =>
+    `<div class="game-card${g.id === selectedGame ? ' sel' : ''}${g.enabled ? '' : ' off'}" data-id="${g.id}">` +
+    `<div class="icon">${g.icon}</div><div><div class="name">${g.name}</div><div class="desc">${g.desc}</div></div>` +
+    (g.enabled ? '' : `<span class="badge">${g.badge || '未開放'}</span>`) + `</div>`).join('');
+}
+$('gameList').onclick = (e) => {
+  const card = e.target.closest('.game-card');
+  const g = card && GAMES.find((x) => x.id === card.dataset.id);
+  if (!g || !g.enabled) return;
+  selectedGame = g.id;
+  renderLobby();
+};
+
+// 大廳玩家頭像：有 head 圖就用圖，沒有就用預設臉（轉成圖片網址並快取）
+const avatarCache = {};
+function avatarUrl(c, i) {
+  if (c.head) return c.head;
+  if (!avatarCache[c.id]) {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 72;
+    CharArt.drawFace(cv.getContext('2d'), 72, i);
+    avatarCache[c.id] = cv.toDataURL();
+  }
+  return avatarCache[c.id];
+}
+
 function renderLobby() {
+  renderGames();
   const list = onlinePlayers();
   const ready = list.filter((p) => p.color);
   $('count').textContent = list.length;
-  $('playerList').innerHTML = list.map((p) => {
-    const c = characters.find((x) => x.id === p.charId);
+  $('playerList').innerHTML = list.length ? list.map((p) => {
+    const ci = characters.findIndex((x) => x.id === p.charId), c = characters[ci];
+    const avatar = c ? `<img class="av" src="${avatarUrl(c, ci)}" alt="">` : `<span class="av"></span>`;
     return p.color
-      ? `<li><span style="color:${p.color}">●</span> ${escapeHtml(p.name)} <small>${c ? c.name : ''}</small></li>`
-      : `<li style="opacity:.6">${escapeHtml(p.name)} <small>選角色中…</small></li>`;
-  }).join('');
+      ? `<li style="--c:${p.color}">${avatar}<span>${escapeHtml(p.name)}${c ? `<br><small>${c.name}</small>` : ''}</span></li>`
+      : `<li style="opacity:.6"><span class="av"></span><span>${escapeHtml(p.name)}<br><small>選角色中…</small></span></li>`;
+  }).join('') : '<li class="empty">用手機掃 QR Code 加入</li>';
   $('startBtn').disabled = ready.length < 1;
-  const sizes = heatSizes(ready.length);
-  let text = list.length ? `已選好 ${ready.length} 人，將分成 ${sizes.length} 組（${sizes.join('、')} 人）` : '用手機掃 QR Code 加入';
+  let text = '';
+  if (selectedGame === 'race') {
+    const sizes = heatSizes(ready.length);
+    text = ready.length ? `已選好 ${ready.length} 人，分 ${sizes.length} 組（${sizes.join('、')} 人）` : '至少要有 1 人選好角色';
+  }
   if (ready.length < list.length) text += `；還有 ${list.length - ready.length} 人沒選好，不會上場`;
   $('info').textContent = text;
 }
@@ -374,6 +414,7 @@ function escapeHtml(s) {
 // ============================================================
 // 開始一整場：把在線玩家依加入順序分組，然後從第 1 組開始
 function startGame() {
+  currentGame = 'race';
   // 離線的人這場不參加，直接移出名單
   for (const [id, p] of players) if (!p.online) players.delete(id);
   const list = [...players.values()].filter((p) => p.color);   // 只有選好角色與顏色的人上場
@@ -506,11 +547,28 @@ function showFinal() {
   setPhase('result');
 }
 
+// 回遊戲大廳：清掉這場的狀態，玩家名單、角色與顏色都保留
+function backToLobby() {
+  clearTimers();
+  for (const [id, p] of players) if (!p.online) players.delete(id);   // 離線的人移出名單
+  players.forEach((p) => {
+    p.heat = null; p.lane = 0; p.pos = 0;
+    p.lastSide = null; p.stunUntil = 0; p.slowUntil = 0; p.fallAt = 0; p.hopAt = 0;
+    p.finished = false; p.finishTime = null; p.heatRank = null; p.overallRank = null;
+  });
+  heats = []; currentHeat = -1; currentGame = null;
+  showRacers([]);
+  view.title = ''; view.countdown = '';
+  setPhase('lobby');
+  renderLobby();
+}
+
 // ============================================================
 // 按鈕
 // ============================================================
-$('startBtn').onclick = startGame;
-$('againBtn').onclick = startGame; // 再來一場：重新分組、重新倒數
+$('startBtn').onclick = () => { const g = GAMES.find((x) => x.id === selectedGame); if (g && g.enabled) g.start(); };
+$('againBtn').onclick = () => { const g = GAMES.find((x) => x.id === currentGame); if (g) g.start(); }; // 再來一場：同一個遊戲重新開始
+$('lobbyBtn').onclick = backToLobby;
 $('nextBtn').onclick = () => {
   if (currentHeat + 1 < heats.length) startHeat(currentHeat + 1);
   else showFinal();

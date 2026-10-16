@@ -231,7 +231,7 @@ function render() {
   const time = me.finishTime != null ? `（${(me.finishTime / 1000).toFixed(2)} 秒）` : '';
   const who = `你是 <b>${me.charName || ''}</b> <span class="dot" style="background:${color}"></span>`;
 
-  if (phase === 'lobby') { setScreen(`${who}<br>等主持人按開始…`, '等待中', false, color); return; }
+  if (phase === 'lobby') { setScreen(`${who}<br>等主持人選遊戲、按開始…`, '等待中', false, color); return; }
   if (me.role === 'late') {            // 本場開始後才加入
     setScreen('本場已經開始了<br>下一場再一起跑！', '等待中', false, color); return;
   }

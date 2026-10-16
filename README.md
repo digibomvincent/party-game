@@ -17,7 +17,7 @@ party-race/
     ├── controller.html / controller.js # 手機控制器
     ├── characters.json                # 角色清單（4 個，每個有 art 大圖與 head 頭圖）與可選的衣服顏色（12 色）
     ├── characters.js                  # 主畫面與手機共用：預設角色臉的畫法、載入圖檔
-    └── img/                           # 角色圖：NN.png 是選角時的大圖，NN_head.png 是頭（透明背景 PNG；沒填的角色用預設臉）
+    └── img/                           # 角色圖：NN.jpg（或 .png）是選角時的大圖，NN_head.png 是頭（透明背景 PNG；沒填的角色用預設臉）
 ```
 
 ## 啟動

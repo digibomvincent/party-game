@@ -8,7 +8,7 @@
 
 - **每組最多 5 人**，人數不能整除時平均分組（10 人 → 5+5、11 人 → 4+4+3），全部組別跑完後依「抵達時間」結算總成績。
 - 角色可以重複，**衣服顏色同一場不能重複**（共 12 色，所以最多 12 人能上場）。
-- 後端只轉送訊息；**所有遊戲邏輯都在 `public/host.js`**。
+- 後端只轉送訊息；**遊戲邏輯都在主畫面（host）端**：大廳在 `public/host.js`，每個遊戲一個檔案放在 `public/games/`。
 
 ## 專案結構
 
@@ -17,7 +17,10 @@ party-race/
 ├── server.js               # Express + Socket.IO：房間管理、訊息轉送、印出區網網址
 ├── package.json
 └── public/
-    ├── host.html / host.js            # 主畫面（Phaser 3 畫跑道；遊戲邏輯都在這）
+    ├── host.html / host.js            # 主畫面：遊戲大廳（玩家、選角色與顏色、選遊戲、階段、與手機溝通），提供 Hub 給各遊戲用
+    ├── games/
+    │   └── race.js                    # 「跑步」遊戲：規則、分組、名次、Phaser 跑道場景（之後的足球放 games/soccer.js）
+    ├── char-render.js                 # 各遊戲共用：角色的大頭貼圖與跑步身體動畫（程式即時畫）
     ├── controller.html / controller.js # 手機控制器
     ├── characters.json                # 角色清單（4 個，每個有 art 大圖與 head 頭圖）與可選的衣服顏色（12 色）
     ├── characters.js                  # 主畫面與手機共用：預設角色臉的畫法、載入圖檔
@@ -56,7 +59,10 @@ npm start
 
 大廳（`lobby`）選遊戲 →（跑步）→ 結算後可「再來一場」或「回遊戲大廳」。
 
-新增遊戲：在 `public/host.js` 的 `GAMES` 清單加一項（`enabled: false` 會顯示「即將推出」）。
+新增遊戲：
+1. `public/host.js` 的 `GAME_LIST` 加一項（`enabled: false` 會顯示「即將推出」）。
+2. 新增 `public/games/xxx.js`，結尾登記 `Hub.games.xxx = { start, stop, onInput, ... }`（介面說明在 `host.js` 最上方，範例是 `games/race.js`），並在 `host.html` 加上 `<script>`。
+3. 大廳負責玩家、角色、顏色與廣播；遊戲只管自己的規則與畫面，自己的玩家狀態放在 `p.xxx`（跑步用 `p.race`）。
 
 跑步的階段：`lobby → countdown → racing → heatResult →（下一組 countdown …）→ result`
 
@@ -73,7 +79,7 @@ npm start
 - 大廳中斷線的人會直接從名單移除。
 - **host 重整頁面或斷線＝房間作廢**，需重新建立。
 
-## 遊戲數值（`public/host.js` 最上方）
+## 跑步的遊戲數值（`public/games/race.js` 最上方）
 
 | 常數 | 意義 |
 |---|---|

@@ -70,8 +70,9 @@ socket.emit('input', { mx: 0.62, my: -0.31, dash: false, neck: true })   // mx, 
 - **延遲**：手機 → server → host 約 50～150ms（Render 雲端）。玩家看的是大螢幕，不是手機，所以不做預測／回滾；host 權威、直接套用輸入即可。區網內延遲更低。
 - 程式拆分（足球做進去的時候一併做）：
   ```
-  public/host.js          ← 大廳、玩家、socket（不動）
-  public/games/race.js    ← 現在 host.js 裡的跑步邏輯搬過去
+  public/host.js          ← 大廳、玩家、socket（Hub）
+  public/char-render.js   ← 共用：大頭與跑步身體（足球直接重用）
+  public/games/race.js    ← 跑步（M0 已完成）
   public/games/soccer.js  ← 新增
   ```
   每個遊戲實作同一組介面：`{ id, start(ctx), stop(), onInput(playerId, input), statusOf(player) }`，大廳的 `GAMES` 清單只負責呼叫 `start()`。
@@ -107,7 +108,7 @@ socket.emit('input', { mx: 0.62, my: -0.31, dash: false, neck: true })   // mx, 
 ## 8. 里程碑（每一步都能實機玩、能驗收）
 | # | 內容 | 驗收 |
 |---|---|---|
-| M0 | 重構：跑步搬進 `games/race.js`，介面定好 | 跑步行為完全不變、測試通過 |
+| M0 ✅ | 重構：跑步搬進 `games/race.js`，介面定好（`Hub`、`Hub.games.xxx`） | 跑步行為完全不變（已用瀏覽器測：分組、結算、再來一場、回大廳、再開一次） |
 | M1 | 俯視球場 + 球 + 球門 + 虛擬搖桿移動（重用跑步角色，沒有脖子） | 1 隻角色能用搖桿在場上跑、推球 |
 | M2 | 分隊、進球、比分、倒數、時間到結算、回大廳 | 2～4 人手機能完整打完一場 |
 | M3 | 頭槌蓄力 + 衝刺 + 脖子伸縮（核心手感） | 蓄力越久球飛越遠；放開時有「彈出去」的手感 |

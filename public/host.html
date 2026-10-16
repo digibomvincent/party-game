@@ -119,6 +119,17 @@
     </div>
   </div>
 
+  <!-- 足球：比賽結束的結算 -->
+  <div id="soccerPanel" class="panel hidden">
+    <h1 id="soccerTitle"></h1>
+    <div id="soccerScore" style="font-size:56px;font-weight:bold;margin-bottom:20px"></div>
+    <ol id="soccerList" class="rank"></ol>
+    <div style="display:flex;gap:20px;justify-content:center">
+      <button id="soccerAgainBtn">再來一場</button>
+      <button id="soccerLobbyBtn" style="background:#3b82f6;color:#fff">回遊戲大廳</button>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>

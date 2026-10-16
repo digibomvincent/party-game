@@ -1,17 +1,30 @@
 // ============================================================
-// games/soccer.js － 「足球」遊戲（M1：俯視球場 + 球 + 球門 + 搖桿移動 + 推球）
+// games/soccer.js － 「足球」遊戲（M2：分紅藍隊、進球計分、倒數、比賽時間、結算）
 //   - 物理全部在 host 端算（固定 60Hz）；手機只送搖桿方向 { mx, my }
 //   - 角色沿用跑步的做法（CharRender：大頭 + 跑步身體）
-//   - 還沒有：分隊、進球計分、倒數與時間、頭槌／衝刺（M2、M3）
+//   - 還沒有：頭槌／衝刺（M3）、道具（M5）
 //   - 和大廳（host.js）的溝通只透過 Hub 與下面回傳的介面
+// 階段 phase：countdown（開球倒數）→ playing（比賽中）→ goal（進球慶祝）→ countdown … → result（結算）
 // ============================================================
 const SoccerGame = (() => {
-  const { players, $, setPhase } = Hub;
+  const { players, $, escapeHtml, setPhase } = Hub;
 
   // ---------- 球場（畫布 1280x720，俯視）----------
   const FIELD = { l: 100, r: 1180, t: 110, b: 690 };
   const CX = (FIELD.l + FIELD.r) / 2, CY = (FIELD.t + FIELD.b) / 2;
   const GOAL_H = 190, GOAL_D = 56;          // 球門開口高度、球門往場外凹進去的深度
+
+  // ---------- 比賽規則 ----------
+  const MAX_PLAYERS = 10;        // 最多上場人數（5v5），其餘的人先等下一場
+  const MATCH_SECONDS = 180;     // 一場比賽 3 分鐘
+  const OVERTIME_SECONDS = 60;   // 平手時的金球加時，最久 60 秒；還是沒進就算平手
+  const COUNTDOWN_SECONDS = 3;   // 開球前倒數
+  const GOAL_PAUSE_MS = 2500;    // 進球後慶祝多久
+  // 紅隊守左邊球門、攻右邊球門；藍隊相反
+  const TEAMS = [
+    { id: 'red',  name: '紅隊', color: 0xef4444, css: '#f87171' },
+    { id: 'blue', name: '藍隊', color: 0x3b82f6, css: '#60a5fa' },
+  ];
 
   // ---------- 手感數值（要調整就改這裡）----------
   const PLAYER_R = 20;           // 角色碰撞半徑（腳下）
@@ -26,26 +39,42 @@ const SoccerGame = (() => {
   const STEP = 1 / 60;           // 物理固定步長
 
   // ---------- 這個遊戲的狀態 ----------
-  // 每位玩家的足球狀態放在 p.soccer（回大廳時清掉）
-  const S = (p) => p.soccer || (p.soccer = { input: { mx: 0, my: 0, at: 0 } });
+  // 每位玩家的足球狀態放在 p.soccer（回大廳時清掉）：{ input, team, goals }
+  const S = (p) => p.soccer || (p.soccer = { input: { mx: 0, my: 0, at: 0 }, team: 0, goals: 0 });
   let field = [];                // 場上的角色 { p, x, y, vx, vy, face }
-  let ball = { x: CX, y: CY, vx: 0, vy: 0, rot: 0 };
+  let ball = { x: CX, y: CY, vx: 0, vy: 0, rot: 0, last: null };   // last = 最後碰到球的角色
   let version = 0;               // 場上角色換了就加一，場景據此重建
+  let score = [0, 0];            // [紅, 藍]
+  let remainingMs = 0;           // 比賽剩餘時間
+  let overtime = false;
+  let centerText = '';           // 畫面正中間的大字（倒數、進球、加時）
+  let goalEvent = { n: 0, team: 0, scorerId: null };   // 進球事件（場景看到 n 變了就播慶祝）
+  let result = null;             // 結算：{ winner: 0 | 1 | -1(平手) }
+  let timers = [];
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+  function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
+
+  // ============================================================
+  // 開球站位
+  // ============================================================
+  // 紅隊站左半場、藍隊站右半場，同隊的人在場上平均排開（離中圈遠一點）
+  function resetKickoff() {
+    ball = { x: CX, y: CY, vx: 0, vy: 0, rot: 0, last: null };
+    for (const team of [0, 1]) {
+      const mates = field.filter((f) => S(f.p).team === team);
+      mates.forEach((f, i) => {
+        const span = FIELD.b - FIELD.t - 160;
+        f.y = mates.length === 1 ? CY : FIELD.t + 80 + (span * i) / (mates.length - 1);
+        f.x = CX + (team === 0 ? -1 : 1) * (200 + (i % 2) * 70);
+        f.vx = 0; f.vy = 0;
+        f.face = team === 0 ? 1 : -1;
+      });
+    }
+  }
 
   // ============================================================
   // 物理
   // ============================================================
-  function resetBall() { ball = { x: CX, y: CY, vx: 0, vy: 0, rot: 0 }; }
-
-  // 開球前的站位：圍著球排成一圈
-  function spawn(list) {
-    field = list.map((p, i) => {
-      const a = (i / list.length) * Math.PI * 2 + Math.PI;
-      return { p, x: CX + Math.cos(a) * 220, y: CY + Math.sin(a) * 180, vx: 0, vy: 0, face: 1 };
-    });
-    version++;
-  }
-
   function stepPhysics(dt) {
     const now = Date.now();
     // 角色：搖桿方向 → 目標速度，慢慢加速過去
@@ -83,7 +112,7 @@ const SoccerGame = (() => {
     ball.vx *= drag; ball.vy *= drag;
     ball.rot += (ball.vx * dt) / BALL_R;
     collideBallWalls();
-    // 球和角色：角色把球推開（把角色當作很重的東西）
+    // 球和角色：角色把球推開（把角色當作很重的東西），並記下最後碰球的人
     for (const f of field) {
       const dx = ball.x - f.x, dy = ball.y - f.y, d = Math.hypot(dx, dy), min = PLAYER_R + BALL_R;
       if (d > 0 && d < min) {
@@ -91,12 +120,15 @@ const SoccerGame = (() => {
         ball.x = f.x + nx * min; ball.y = f.y + ny * min;           // 先分開，避免卡進去
         const relN = (ball.vx - f.vx) * nx + (ball.vy - f.vy) * ny;   // 球相對角色、沿著連線的速度
         if (relN < 0) { ball.vx -= (1 + HIT_BOUNCE) * relN * nx; ball.vy -= (1 + HIT_BOUNCE) * relN * ny; }
+        ball.last = f;
       }
     }
     collideBallWalls();
+    checkGoal();
+    tickClock(dt);
   }
 
-  // 球撞到場邊會彈回；球門開口的地方可以進到球門裡面（M1 還不算進球）
+  // 球撞到場邊會彈回；球門開口的地方可以進到球門裡面
   function collideBallWalls() {
     const inMouth = Math.abs(ball.y - CY) <= GOAL_H / 2 - BALL_R;   // 球的高度在球門開口範圍內
     const xMin = (inMouth ? FIELD.l - GOAL_D : FIELD.l) + BALL_R;
@@ -112,21 +144,106 @@ const SoccerGame = (() => {
   }
 
   // ============================================================
-  // 畫面層（Phaser）：場地、球、角色（沿用跑步的身體與大頭）
+  // 比賽流程
+  // ============================================================
+  // 球整顆越過球門線 → 進球（右邊球門算紅隊得分，左邊球門算藍隊得分）
+  function checkGoal() {
+    if (Hub.phase !== 'playing') return;
+    if (ball.x - BALL_R > FIELD.r) onGoal(0);
+    else if (ball.x + BALL_R < FIELD.l) onGoal(1);
+  }
+
+  function tickClock(dt) {
+    if (Hub.phase !== 'playing') return;
+    remainingMs -= dt * 1000;
+    if (remainingMs > 0) return;
+    remainingMs = 0;
+    if (score[0] === score[1] && !overtime) {                // 平手 → 金球加時
+      overtime = true;
+      remainingMs = OVERTIME_SECONDS * 1000;
+      centerText = '平手！金球決勝';
+      later(() => { if (centerText === '平手！金球決勝') centerText = ''; }, 1800);
+    } else {
+      endMatch();                                            // 分出勝負，或加時賽仍平手
+    }
+  }
+
+  function onGoal(team) {
+    const f = ball.last;
+    const own = f && S(f.p).team !== team;                    // 最後碰球的是對方 → 烏龍球
+    score[team]++;
+    if (f && !own) S(f.p).goals++;
+    goalEvent = { n: goalEvent.n + 1, team, scorerId: f && !own ? f.p.id : null };
+    centerText = `⚽ ${TEAMS[team].name}進球！` + (f ? `\n${own ? '烏龍球 ' : ''}${f.p.name}` : '');
+    setPhase('goal');
+    clearTimers();
+    later(() => {
+      centerText = '';
+      if (overtime || remainingMs <= 0) endMatch();           // 金球，或哨音前的最後一球
+      else beginCountdown();
+    }, GOAL_PAUSE_MS);
+  }
+
+  // 開球前倒數：角色回到站位，3、2、1、GO
+  function beginCountdown() {
+    clearTimers();
+    resetKickoff();
+    setPhase('countdown');
+    let count = COUNTDOWN_SECONDS;
+    centerText = String(count);
+    const tick = () => {
+      count--;
+      if (count > 0) { centerText = String(count); later(tick, 1000); return; }
+      centerText = 'GO!';
+      setPhase('playing');
+      later(() => { if (centerText === 'GO!') centerText = ''; }, 800);
+    };
+    later(tick, 1000);
+  }
+
+  function endMatch() {
+    clearTimers();
+    centerText = '';
+    const winner = score[0] > score[1] ? 0 : score[1] > score[0] ? 1 : -1;
+    result = { winner };
+    // 結算面板：比分 + 每人進球數
+    $('soccerTitle').textContent = winner < 0 ? '🤝 平手！' : `🏆 ${TEAMS[winner].name}獲勝！`;
+    $('soccerScore').innerHTML = `<span style="color:${TEAMS[0].css}">紅隊 ${score[0]}</span> : <span style="color:${TEAMS[1].css}">${score[1]} 藍隊</span>`;
+    const rows = field.map((f) => f.p).sort((a, b) => S(b).goals - S(a).goals);
+    $('soccerList').innerHTML = rows.map((p) =>
+      `<li><span style="color:${TEAMS[S(p).team].css}">● </span><span style="flex:1">${escapeHtml(p.name)}</span><span>${S(p).goals} 球</span></li>`).join('');
+    setPhase('result');
+  }
+
+  // ============================================================
+  // 畫面層（Phaser）：場地、球、角色（沿用跑步的身體與大頭）、比分與時間
   // ============================================================
   class SoccerScene extends Phaser.Scene {
     create() {
       this.acc = 0;
       this.sprites = [];
       this.version = -1;
+      this.goalN = goalEvent.n;
       this.drawField();
+      // 撒花用的小方塊貼圖（場景可能重複啟動，貼圖只建一次）
+      if (!this.textures.exists('dot')) {
+        const dot = this.textures.createCanvas('dot', 8, 8);
+        dot.getContext().fillStyle = '#fff'; dot.getContext().fillRect(0, 0, 8, 8); dot.refresh();
+      }
       // 球：陰影 + 白底黑邊 + 中間一塊深色
       this.ballShadow = this.add.ellipse(0, 0, BALL_R * 2, BALL_R * 0.9, 0x000000, 0.3).setDepth(1);
       const g = this.add.graphics();
       g.fillStyle(0xffffff).fillCircle(0, 0, BALL_R).lineStyle(3, 0x111111).strokeCircle(0, 0, BALL_R);
       g.fillStyle(0x222222).fillCircle(0, 0, 6).fillCircle(-10, -4, 3).fillCircle(9, 5, 3).fillCircle(2, -11, 3);
       this.ballSprite = this.add.container(CX, CY, [g]);
-      this.add.text(CANVAS_W / 2, 56, '足球（測試版）', { fontSize: '40px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+      // 上方：比分與時間
+      const style = { fontSize: '44px', color: '#fff', fontStyle: 'bold', stroke: '#000', strokeThickness: 5 };
+      this.redText = this.add.text(CX - 90, 56, '', { ...style, color: TEAMS[0].css }).setOrigin(1, 0.5);
+      this.blueText = this.add.text(CX + 90, 56, '', { ...style, color: TEAMS[1].css }).setOrigin(0, 0.5);
+      this.timeText = this.add.text(CX, 56, '', { ...style, fontSize: '40px' }).setOrigin(0.5);
+      // 正中間的大字（倒數、進球、加時）
+      this.cdText = this.add.text(CX, CY - 20, '', { fontSize: '150px', color: '#fff', fontStyle: 'bold', align: 'center',
+        stroke: '#000', strokeThickness: 12 }).setOrigin(0.5).setDepth(5000);
     }
 
     drawField() {
@@ -136,10 +253,11 @@ const SoccerGame = (() => {
       for (let x = FIELD.l, i = 0; x < FIELD.r; x += stripe, i++) {
         g.fillStyle(i % 2 ? 0x2f8f4e : 0x37a05a).fillRect(x, FIELD.t, Math.min(stripe, FIELD.r - x), FIELD.b - FIELD.t);
       }
-      // 球門（場外凹進去的區塊）+ 網子
+      // 球門（場外凹進去的區塊）+ 網子；左邊是紅隊的、右邊是藍隊的，用淡淡的隊色區分
       for (const side of [-1, 1]) {
         const gx = side < 0 ? FIELD.l - GOAL_D : FIELD.r;
         g.fillStyle(0x1b2a38).fillRect(gx, CY - GOAL_H / 2, GOAL_D, GOAL_H);
+        g.fillStyle(TEAMS[side < 0 ? 0 : 1].color, 0.25).fillRect(gx, CY - GOAL_H / 2, GOAL_D, GOAL_H);
         g.lineStyle(1, 0x5b7186);
         for (let k = 0; k <= GOAL_D; k += 14) g.lineBetween(gx + k, CY - GOAL_H / 2, gx + k, CY + GOAL_H / 2);
         for (let k = 0; k <= GOAL_H; k += 14) g.lineBetween(gx, CY - GOAL_H / 2 + k, gx + GOAL_D, CY - GOAL_H / 2 + k);
@@ -162,28 +280,53 @@ const SoccerGame = (() => {
       g.setDepth(0);
     }
 
-    // 依場上角色重建：身體（跑步動畫）+ 大頭 + 名字 + 陰影
+    // 依場上角色重建：身體（跑步動畫）+ 大頭 + 名字 + 腳下的隊色環
     rebuild() {
-      this.sprites.forEach((s) => { s.c.destroy(); s.label.destroy(); s.shadow.destroy(); });
+      this.sprites.forEach((s) => { s.c.destroy(); s.label.destroy(); s.ring.destroy(); });
       this.sprites = field.map((f) => {
-        const p = f.p;
+        const p = f.p, team = TEAMS[S(p).team];
         const body = this.add.sprite(0, 0, CharRender.ensureBody(this, p.color), 'f0').setScale(CharRender.BODY_SCALE);
         const headY = (24 - CharRender.BODY_FRAME_H / 2) * CharRender.BODY_SCALE - CharRender.HEAD_SIZE / 2 + 4;
         const head = this.add.image(0, headY, p.photo ? 'head-' + p.id : 'char-' + p.charId)
           .setDisplaySize(CharRender.HEAD_SIZE, CharRender.HEAD_SIZE);
         const c = this.add.container(f.x, f.y, [body, head]).setScale(CHAR_SCALE);
-        const label = this.add.text(f.x, f.y, p.name, { fontSize: '16px', color: '#fff', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5);
-        const shadow = this.add.ellipse(f.x, f.y, PLAYER_R * 2.2, PLAYER_R * 0.9, 0x000000, 0.3).setDepth(1);
-        return { f, c, body, head, label, shadow, headY, color: p.color };
+        const label = this.add.text(f.x, f.y, p.name, { fontSize: '16px', color: '#fff', stroke: team.css, strokeThickness: 4 }).setOrigin(0.5);
+        const ring = this.add.ellipse(f.x, f.y, PLAYER_R * 2.4, PLAYER_R * 1.1, 0x000000, 0.25).setStrokeStyle(4, team.color).setDepth(1);
+        return { f, c, body, head, label, ring, headY, color: p.color };
       });
       this.version = version;
     }
 
+    // 進球慶祝：得分的人轉頭，球門前撒彩帶
+    celebrate() {
+      const team = goalEvent.team;
+      const x = team === 0 ? FIELD.r : FIELD.l;
+      this.add.particles(x, CY, 'dot', {
+        speed: { min: 150, max: 380 }, angle: team === 0 ? { min: 120, max: 240 } : { min: -60, max: 60 }, gravityY: 300, lifespan: 1400,
+        scale: { start: 1.2, end: 0.4 }, rotate: { min: 0, max: 360 }, quantity: 40, emitting: false,
+        tint: [TEAMS[team].color, 0xffffff, 0xfacc15],
+      }).setDepth(4000).explode(40);
+      const s = this.sprites.find((x2) => x2.f.p.id === goalEvent.scorerId);
+      if (s) this.tweens.add({ targets: s.head, angle: 360, duration: 700, ease: 'Cubic.easeOut', onComplete: () => { s.head.angle = 0; } });
+    }
+
     update(time, delta) {
       if (this.version !== version) this.rebuild();
-      // 固定步長物理（畫面卡頓時最多補 6 步）
-      this.acc = Math.min(this.acc + delta / 1000, STEP * 6);
-      while (this.acc >= STEP) { stepPhysics(STEP); this.acc -= STEP; }
+      if (this.goalN !== goalEvent.n) { this.goalN = goalEvent.n; this.celebrate(); }
+      // 固定步長物理（只有比賽中才動；畫面卡頓時最多補 6 步）
+      if (Hub.phase === 'playing') {
+        this.acc = Math.min(this.acc + delta / 1000, STEP * 6);
+        while (this.acc >= STEP && Hub.phase === 'playing') { stepPhysics(STEP); this.acc -= STEP; }
+      } else {
+        this.acc = 0;
+      }
+
+      // 比分、時間、中間大字
+      const sec = Math.ceil(Math.max(0, remainingMs) / 1000);
+      this.redText.setText(`紅隊 ${score[0]}`);
+      this.blueText.setText(`${score[1]} 藍隊`);
+      this.timeText.setText(overtime ? `加時 ${sec}` : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
+      this.cdText.setText(centerText).setFontSize(centerText.length > 4 ? 64 : 150);
 
       // 球
       this.ballSprite.setPosition(ball.x, ball.y).setRotation(ball.rot).setDepth(ball.y);
@@ -194,7 +337,7 @@ const SoccerGame = (() => {
         const f = s.f, speed = Math.hypot(f.vx, f.vy);
         const footToBody = (92 - CharRender.BODY_FRAME_H / 2) * CharRender.BODY_SCALE * CHAR_SCALE;   // 腳到身體中心的距離
         s.c.setPosition(f.x, f.y - footToBody).setDepth(f.y);
-        s.shadow.setPosition(f.x, f.y + 2);
+        s.ring.setPosition(f.x, f.y + 2);
         s.label.setPosition(f.x, f.y - footToBody - (CharRender.HEAD_SIZE * 0.5 - s.headY) * CHAR_SCALE - 16).setDepth(2000);
         s.c.setAlpha(f.p.online ? 1 : 0.4);
         s.body.setFlipX(f.face < 0);                                   // 往左跑就把身體和大頭一起鏡射
@@ -206,7 +349,8 @@ const SoccerGame = (() => {
           s.head.angle = Math.sin(t * 8 * s.body.anims.timeScale) * 4;
         } else {
           if (s.body.anims.isPlaying) { s.body.anims.stop(); s.body.setFrame('f0'); }
-          s.head.y = s.headY; s.head.angle = 0;
+          s.head.y = s.headY;
+          if (!this.tweens.isTweening(s.head)) s.head.angle = 0;
         }
       }
     }
@@ -217,23 +361,34 @@ const SoccerGame = (() => {
   // ============================================================
   function start() {
     for (const [id, p] of players) if (!p.online) players.delete(id);     // 離線的人這場不參加
-    const list = [...players.values()].filter((p) => p.color);            // 只有選好角色與顏色的人上場
+    const list = [...players.values()].filter((p) => p.color).slice(0, MAX_PLAYERS);   // 選好角色與顏色的人，依加入順序，最多 10 人
     if (!list.length) return;
+
+    clearTimers();
     players.forEach((p) => { delete p.soccer; });
-    resetBall();
-    spawn(list);
+    list.forEach((p, i) => { S(p).team = i % 2; });                       // 輪流分到紅、藍隊，人數會平均
+    field = list.map((p) => ({ p, x: CX, y: CY, vx: 0, vy: 0, face: 1 }));
+    version++;
+    score = [0, 0]; remainingMs = MATCH_SECONDS * 1000; overtime = false;
+    centerText = ''; result = null; goalEvent = { n: 0, team: 0, scorerId: null };
+    $('soccerPanel').classList.add('hidden');
     Hub.game.scene.stop('soccer');
     Hub.game.scene.start('soccer');
-    setPhase('playing');
+    beginCountdown();
   }
 
   function stop() {
+    clearTimers();
     field = []; version++;
+    centerText = ''; result = null;
     players.forEach((p) => { delete p.soccer; });
+    $('soccerPanel').classList.add('hidden');
     $('hud').textContent = '';
     Hub.game.scene.stop('soccer');
   }
 
+  $('soccerAgainBtn').onclick = start;                  // 再來一場：重新分隊、重新開打
+  $('soccerLobbyBtn').onclick = () => Hub.backToLobby();
   Hub.game.scene.add('soccer', SoccerScene, false);
 
   return {
@@ -246,12 +401,23 @@ const SoccerGame = (() => {
       S(p).input = { mx: data.mx, my: data.my, at: Date.now() };
     },
     onPlayerLeft(p) { if (p.soccer) p.soccer.input = { mx: 0, my: 0, at: 0 }; },
-    onPhase() { $('hud').textContent = ''; },
-    statusOf: (p) => ({ role: field.some((f) => f.p === p) ? 'player' : 'late' }),   // late = 本場開始後才加入
-    stateExtra: () => ({}),
-    lobbyInfo: (n) => n ? `已選好 ${n} 人（測試版：用搖桿跑位、推球）` : '至少要有 1 人選好角色',
+    onPhase(phase) {                                                   // 階段切換時更新結算面板
+      $('soccerPanel').classList.toggle('hidden', phase !== 'result');
+    },
+    // 傳給某位玩家手機的足球狀態（和大廳的通用狀態合併）
+    statusOf(p) {
+      if (!field.some((f) => f.p === p)) return { role: 'late' };       // late = 本場開始後才加入，或超過 10 人
+      const team = S(p).team;
+      return {
+        role: 'player', team: TEAMS[team].id, teamName: TEAMS[team].name, goals: S(p).goals,
+        result: result ? (result.winner < 0 ? 'draw' : result.winner === team ? 'win' : 'lose') : null,
+      };
+    },
+    stateExtra: () => ({ score }),                                      // 廣播給所有手機：目前比分
+    lobbyInfo: (n) => n ? `已選好 ${n} 人，分紅藍兩隊（最多 ${MAX_PLAYERS} 人上場）` : '至少要有 1 人選好角色',
     // 測試用
-    _state: () => ({ field: field.map((f) => ({ x: f.x, y: f.y, vx: f.vx, vy: f.vy })), ball: { ...ball } }),
+    _state: () => ({ field: field.map((f) => ({ x: f.x, y: f.y, vx: f.vx, vy: f.vy, team: S(f.p).team })), ball: { ...ball }, score, remainingMs, overtime, phase: Hub.phase }),
+    _set: (o) => { if (o.ball) Object.assign(ball, o.ball); if (o.lastIndex != null) ball.last = field[o.lastIndex]; if (o.remainingMs != null) remainingMs = o.remainingMs; },
   };
 })();
 Hub.games.soccer = SoccerGame;

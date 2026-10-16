@@ -237,8 +237,16 @@ function render() {
   if (me.role === 'late') {            // 本場開始後才加入
     setScreen('本場已經開始了<br>下一場再一起跑！', '等待中', false, color); return;
   }
-  if (gameState.game === 'soccer') {   // 足球：整塊畫面是搖桿
-    setScreen('用搖桿跑位，<br>把球推進球門！', '', 'stick', color); return;
+  if (gameState.game === 'soccer') {   // 足球：整塊畫面是搖桿；比賽結束顯示勝負
+    const sc = gameState.score || [0, 0];
+    const board = `<span style="color:#f87171">紅 ${sc[0]}</span> : <span style="color:#60a5fa">${sc[1]} 藍</span>`;
+    const team = me.team ? `<b style="color:${me.team === 'red' ? '#f87171' : '#60a5fa'}">${me.teamName}</b>` : '';
+    if (phase === 'result') {
+      const text = { win: '你們贏了！', lose: '這場輸了', draw: '平手' }[me.result] || '比賽結束';
+      setScreen(`${board}<br>${team}　${text}`, { win: '勝利', lose: '落敗', draw: '平手' }[me.result] || '結束', false, color); return;
+    }
+    const hint = phase === 'countdown' ? '預備…' : phase === 'goal' ? '進球！' : '用搖桿跑位，把球推進對方球門';
+    setScreen(`${board}<br>你是 ${team}　<small>${hint}</small>`, '', 'stick', color); return;
   }
   if (phase === 'result') {            // 全部跑完：顯示總名次
     setScreen(me.finished ? `全部結束！你的總名次` + time : '全部結束！你沒跑完',

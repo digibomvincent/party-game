@@ -4,7 +4,7 @@
 
 目前的遊戲：
 - 🏃 **跑步**：用手機**左右兩顆按鈕交替連按**讓自己的角色往終點跑。
-- ⚽ **足球**：開發中（M1：俯視球場，用虛擬搖桿跑位、推球；之後會有分隊、計分、頭槌），規劃見 [`docs/soccer-plan.md`](docs/soccer-plan.md)。
+- ⚽ **足球**（測試中）：俯視球場，用虛擬搖桿跑位推球；紅藍分隊（最多 5v5）、進球計分、3 分鐘比賽、平手金球加時、結算。之後會有頭槌與衝刺，規劃見 [`docs/soccer-plan.md`](docs/soccer-plan.md)。
 
 - **每組最多 5 人**，人數不能整除時平均分組（10 人 → 5+5、11 人 → 4+4+3），全部組別跑完後依「抵達時間」結算總成績。
 - 角色可以重複，**衣服顏色同一場不能重複**（共 12 色，所以最多 12 人能上場）。
@@ -112,3 +112,16 @@ npm start
 ## 部署到 Render
 - Build Command：`npm install`；Start Command：`npm start`
 - 程式已監聽 `process.env.PORT`，並會自動使用 `RENDER_EXTERNAL_URL` 產生 QR Code 網址。
+
+## 足球的規則與數值（`public/games/soccer.js` 最上方）
+
+| 常數 | 意義 |
+|---|---|
+| `MAX_PLAYERS` | 最多上場人數（10 人 = 5v5），超過的人這場先等 |
+| `MATCH_SECONDS` | 一場比賽幾秒（預設 180） |
+| `OVERTIME_SECONDS` | 平手時金球加時最久幾秒；加時仍沒進球就算平手 |
+| `COUNTDOWN_SECONDS` / `GOAL_PAUSE_MS` | 開球倒數秒數／進球後慶祝多久（慶祝與倒數時比賽時間暫停） |
+| `MAX_SPEED` / `ACCEL` | 角色最高速度／加減速的靈敏度 |
+| `BALL_DRAG` / `WALL_BOUNCE` / `HIT_BOUNCE` | 球的滾動阻力／撞牆彈性／被角色撞時的彈性 |
+
+規則：紅隊守左邊球門、攻右邊球門，藍隊相反；球整顆越過球門線才算進球。最後碰到球的是對方隊員則算**烏龍球**（得分給進攻隊，但不記個人進球）。

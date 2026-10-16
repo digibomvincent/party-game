@@ -63,6 +63,15 @@
     #pad button { flex: 1; font-size: 64px; opacity: .75; }
     #pad button.next { opacity: 1; box-shadow: 0 0 0 6px rgba(255, 255, 255, .55) inset; }
     #pad button.pressed, #bigBtn.pressed { transform: scale(.95); filter: brightness(1.5); }   /* 按下時的視覺回饋 */
+    /* 足球：整塊都是浮動搖桿（手指按在哪裡，搖桿就出現在哪裡） */
+    #stickZone { flex: 1; margin: 0 12px 24px; border-radius: 28px; background: #16222e; position: relative; overflow: hidden;
+      touch-action: none; }
+    #stickHint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #4b6075;
+      font-size: 28px; pointer-events: none; }
+    #stickBase { position: absolute; width: 150px; height: 150px; border-radius: 50%; border: 4px solid rgba(255,255,255,.45);
+      background: rgba(255,255,255,.08); transform: translate(-50%, -50%); pointer-events: none; }
+    #stickKnob { position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; border-radius: 50%; background: var(--c, #3b82f6);
+      border: 4px solid #fff; transform: translate(-50%, -50%); }
     #bigBtn:disabled { background: #3a4a5a; color: #7b8a99; }
   </style>
 </head>
@@ -93,6 +102,10 @@
     <div id="msg"></div>
     <button id="repickBtn" class="hidden">改角色 / 顏色</button>
     <button id="bigBtn" disabled>等待中</button>
+    <div id="stickZone" class="hidden">
+      <div id="stickHint">按住畫面任何地方，往想去的方向拖</div>
+      <div id="stickBase" class="hidden"><div id="stickKnob"></div></div>
+    </div>
     <div id="pad" class="hidden">
       <button id="btnL">左</button>
       <button id="btnR">右</button>

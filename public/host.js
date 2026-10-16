@@ -7,7 +7,7 @@
 // 遊戲要實作的介面（見 games/race.js）：
 //   start()                  按「開始」時呼叫，由遊戲自己決定誰上場、怎麼進行
 //   stop()                   回大廳時呼叫，清掉計時器、面板、畫面
-//   onInput(playerId, data)  收到手機的按鍵（目前是 tap 事件）
+//   onInput(playerId, data)  收到手機的輸入：tap 事件 { side }（跑步）或 input 事件 { mx, my, dash, neck }（足球）
 //   onPlayerLeft(player)     有人斷線（大廳之外的階段）
 //   onPhase(phase)           階段切換時更新遊戲自己的面板
 //   statusOf(player)         傳給某位玩家手機的遊戲狀態（和通用狀態合併）
@@ -27,7 +27,7 @@ const CANVAS_W = 1280, CANVAS_H = 720;
 // enabled:false 的會顯示「即將推出」，不能選。
 const GAME_LIST = [
   { id: 'race',   icon: '🏃', name: '跑步', desc: '左右交替連按，衝向終點！', enabled: true },
-  { id: 'soccer', icon: '⚽', name: '足球', desc: '用大頭頂球進球，分隊對戰', enabled: false, badge: '即將推出' },
+  { id: 'soccer', icon: '⚽', name: '足球', desc: '搖桿跑位，用大頭把球頂進球門', enabled: true,  badge: '測試中' },
 ];
 let selectedGame = 'race';   // 大廳目前選的遊戲
 
@@ -78,6 +78,7 @@ function setPhase(next) {
   Hub.phase = next;
   broadcastState();
   $('lobby').classList.toggle('hidden', next !== 'lobby');
+  $('homeBtn').classList.toggle('hidden', next === 'lobby');   // 遊戲中可隨時回大廳
   if (Hub.currentGame && Hub.currentGame.onPhase) Hub.currentGame.onPhase(next);
   sendAllStatus();
 }
@@ -102,7 +103,7 @@ function renderGames() {
   $('gameList').innerHTML = GAME_LIST.map((g) =>
     `<div class="game-card${g.id === selectedGame ? ' sel' : ''}${g.enabled ? '' : ' off'}" data-id="${g.id}">` +
     `<div class="icon">${g.icon}</div><div><div class="name">${g.name}</div><div class="desc">${g.desc}</div></div>` +
-    (g.enabled ? '' : `<span class="badge">${g.badge || '未開放'}</span>`) + `</div>`).join('');
+    (g.badge || !g.enabled ? `<span class="badge">${g.badge || '未開放'}</span>` : '') + `</div>`).join('');
 }
 $('gameList').onclick = (e) => {
   const card = e.target.closest('.game-card');
@@ -165,6 +166,7 @@ function backToLobby() {
 }
 
 $('startBtn').onclick = startSelectedGame;
+$('homeBtn').onclick = () => { if (confirm('確定要回大廳嗎？這一場會結束。')) backToLobby(); };
 
 // ============================================================
 // Socket 事件
@@ -195,10 +197,12 @@ socket.on('player:left', ({ playerId }) => {
   if (Hub.currentGame && Hub.currentGame.onPlayerLeft) Hub.currentGame.onPlayerLeft(p);
 });
 
-// 玩家按鍵：交給目前的遊戲處理
-socket.on('tap', (data) => {
-  if (Hub.currentGame && Hub.currentGame.onInput) Hub.currentGame.onInput(data.playerId, data);
-});
+// 玩家按鍵（tap：跑步的左右鍵）與持續輸入（input：足球的搖桿與按鈕）：都交給目前的遊戲處理
+for (const type of ['tap', 'input']) {
+  socket.on(type, (data) => {
+    if (Hub.currentGame && Hub.currentGame.onInput) Hub.currentGame.onInput(data.playerId, data);
+  });
+}
 
 // 玩家選角色與衣服顏色：角色可重複，顏色不能重複（先選先贏）
 socket.on('player:pick', ({ playerId, charId, color }) => {

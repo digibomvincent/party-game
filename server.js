@@ -107,6 +107,19 @@ io.on('connection', (socket) => {
     if (room) io.to(room.hostId).emit('tap', { playerId: socket.data.playerId, side });
   });
 
+  // ---------- 手機的持續輸入（足球的搖桿與按鈕）→ 轉給 host ----------
+  //   mx, my：搖桿方向 -1~1；dash、neck：按鈕是否按住
+  socket.on('input', (data) => {
+    if (socket.data?.role !== 'player') return;
+    const room = rooms.get(socket.data.room);
+    if (!room) return;
+    const num = (v) => Math.max(-1, Math.min(1, Number(v) || 0));
+    io.to(room.hostId).emit('input', {
+      playerId: socket.data.playerId,
+      mx: num(data?.mx), my: num(data?.my), dash: !!data?.dash, neck: !!data?.neck,
+    });
+  });
+
   // ---------- 手機選角色 / 衣服顏色 → 轉給 host（host 負責檢查顏色有沒有被選走）----------
   socket.on('player:pick', (data) => {
     if (socket.data?.role !== 'player') return;

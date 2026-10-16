@@ -66,12 +66,14 @@
     .next-info { font-size: 22px; color: #9fb3c8; margin-bottom: 20px; }
 
     /* 右上角小提示：目前第幾組 */
+    #homeBtn { position: fixed; top: 12px; right: 16px; font-size: 18px; padding: 8px 18px; border-radius: 10px; background: #334155; color: #fff; z-index: 5; }
     #hud { position: fixed; top: 14px; left: 20px; font-size: 28px; font-weight: bold; pointer-events: none; }
   </style>
 </head>
 <body>
   <div id="game"></div>
   <div id="hud"></div>
+  <button id="homeBtn" class="hidden">回大廳</button>
 
   <!-- 遊戲大廳：左欄選遊戲、右欄是加入的玩家 -->
   <div id="lobby" class="panel">
@@ -124,5 +126,6 @@
   <script src="char-render.js"></script>
   <script src="host.js"></script>
   <script src="games/race.js"></script>
+  <script src="games/soccer.js"></script>
 </body>
 </html>

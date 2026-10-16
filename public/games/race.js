@@ -366,7 +366,7 @@ const RaceGame = (() => {
   return {
     start,
     stop,
-    onInput: (playerId, data) => onTap(playerId, data && data.side),   // 手機的 tap 事件
+    onInput: (playerId, data) => { if (data && data.side) onTap(playerId, data.side); },   // 手機的 tap 事件
     onPlayerLeft: () => checkHeatDone(),
     onPhase(phase) {                                                   // 階段切換時更新跑步用的面板
       $('heatPanel').classList.toggle('hidden', phase !== 'heatResult');

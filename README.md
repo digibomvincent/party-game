@@ -4,7 +4,7 @@
 
 目前的遊戲：
 - 🏃 **跑步**：用手機**左右兩顆按鈕交替連按**讓自己的角色往終點跑。
-- ⚽ **足球**：規劃中，見 [`docs/soccer-plan.md`](docs/soccer-plan.md)。
+- ⚽ **足球**：開發中（M1：俯視球場，用虛擬搖桿跑位、推球；之後會有分隊、計分、頭槌），規劃見 [`docs/soccer-plan.md`](docs/soccer-plan.md)。
 
 - **每組最多 5 人**，人數不能整除時平均分組（10 人 → 5+5、11 人 → 4+4+3），全部組別跑完後依「抵達時間」結算總成績。
 - 角色可以重複，**衣服顏色同一場不能重複**（共 12 色，所以最多 12 人能上場）。
@@ -19,7 +19,8 @@ party-race/
 └── public/
     ├── host.html / host.js            # 主畫面：遊戲大廳（玩家、選角色與顏色、選遊戲、階段、與手機溝通），提供 Hub 給各遊戲用
     ├── games/
-    │   └── race.js                    # 「跑步」遊戲：規則、分組、名次、Phaser 跑道場景（之後的足球放 games/soccer.js）
+    │   ├── race.js                    # 「跑步」遊戲：規則、分組、名次、Phaser 跑道場景
+    │   └── soccer.js                  # 「足球」遊戲（開發中）：球場、物理、搖桿輸入
     ├── char-render.js                 # 各遊戲共用：角色的大頭貼圖與跑步身體動畫（程式即時畫）
     ├── controller.html / controller.js # 手機控制器
     ├── characters.json                # 角色清單（4 個，每個有 art 大圖與 head 頭圖）與可選的衣服顏色（12 色）
@@ -100,6 +101,7 @@ npm start
 | `player:join` | 手機 → server → host | `{ room, playerId, name }`（server 轉給 host 時為 `{ playerId, name }`）；手機有 callback `{ ok, error }` |
 | `game:state` | host → 所有手機 | `{ phase, heat, totalHeats, taken }`（`taken` = 已被選走的顏色），phase 為 `lobby / countdown / racing / heatResult / result` |
 | `tap` | 手機 → host | `{ side }`，side 為 `L / R / both`（server 補上 `playerId`） |
+| `input` | 手機 → server → host | `{ mx, my, dash, neck }`，足球的持續輸入（搖桿方向 -1~1、按鈕）；server 補上 `playerId` 並限制範圍 |
 | `player:pick` | 手機 → server → host | `{ charId, color }`；host 檢查顏色有沒有被選走，結果用 `player:status` 回 |
 | `player:status` | host → 單一手機 | `{ playerId, status }`；status 含 `role / heat / picked / charName / color / finished / heatRank / overallRank / finishTime` |
 | `player:left` | server → host | `{ playerId }`，玩家斷線 |

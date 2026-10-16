@@ -203,14 +203,16 @@ $('pickBack').onclick = () => { pickStep = 'char'; pickMsg = ''; renderPick(); }
 $('repickBtn').onclick = () => { repicking = true; pickStep = 'char'; pickMsg = ''; render(); };
 
 // ---------- 依狀態更新畫面 ----------
+// enabled：false = 一顆鎖住的大按鈕（等待、結果）；true = 跑步的左右兩顆；'stick' = 足球的搖桿
 function setScreen(msg, btnText, enabled, color) {
   $('msg').innerHTML = `<div>${msg}</div>`;
-  // 等待、結果時顯示一顆大按鈕（鎖住）；比賽中改成左右兩顆
-  $('pad').classList.toggle('hidden', !enabled);
-  $('bigBtn').classList.toggle('hidden', enabled);
+  $('pad').classList.toggle('hidden', enabled !== true);
+  $('stickZone').classList.toggle('hidden', enabled !== 'stick');
+  $('bigBtn').classList.toggle('hidden', !!enabled);
+  if (enabled !== 'stick') releaseStick();
   $('bigBtn').textContent = btnText;
   $('bigBtn').disabled = true;
-  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR')]) el.style.setProperty('--c', color);
+  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('stickKnob')]) el.style.setProperty('--c', color);
   if (!enabled) { lastSide = null; updateNext(); }
 }
 
@@ -234,6 +236,9 @@ function render() {
   if (phase === 'lobby') { setScreen(`${who}<br>等主持人選遊戲、按開始…`, '等待中', false, color); return; }
   if (me.role === 'late') {            // 本場開始後才加入
     setScreen('本場已經開始了<br>下一場再一起跑！', '等待中', false, color); return;
+  }
+  if (gameState.game === 'soccer') {   // 足球：整塊畫面是搖桿
+    setScreen('用搖桿跑位，<br>把球推進球門！', '', 'stick', color); return;
   }
   if (phase === 'result') {            // 全部跑完：顯示總名次
     setScreen(me.finished ? `全部結束！你的總名次` + time : '全部結束！你沒跑完',
@@ -292,6 +297,58 @@ for (const [side, id] of [['L', 'btnL'], ['R', 'btnR']]) {
   btn.addEventListener('pointerleave', release);
 }
 document.addEventListener('contextmenu', (e) => e.preventDefault()); // 禁止長按選單
+
+// ---------- 足球：浮動搖桿（送 input 事件 { mx, my }，-1~1）----------
+const STICK_R = 60;            // 搖桿拖到這個距離（像素）就是推到底
+const STICK_DEAD = 0.15;       // 死區：太小的移動當作沒動，避免手指微抖
+const STICK_SEND_MS = 50;      // 拖動時最多每 50ms 送一次
+const STICK_KEEPALIVE_MS = 150; // 按住不動時也定期重送，host 才不會以為斷線
+let stick = null;              // 目前按著的手指 { id, x0, y0, mx, my }
+let stickSentAt = 0, stickTimer = null;
+
+function sendStick() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  socket.emit('input', { mx: r2(stick ? stick.mx : 0), my: r2(stick ? stick.my : 0) });
+  stickSentAt = performance.now();
+}
+function releaseStick() {       // 放開 / 離開足球畫面：搖桿歸零並通知 host
+  if (!stick) return;
+  stick = null;
+  clearInterval(stickTimer);
+  $('stickBase').classList.add('hidden');
+  $('stickHint').classList.remove('hidden');
+  sendStick();
+}
+const zone = $('stickZone');
+zone.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (stick) return;
+  zone.setPointerCapture(e.pointerId);               // 手指拖出範圍也不會斷
+  const rect = zone.getBoundingClientRect();
+  stick = { id: e.pointerId, x0: e.clientX, y0: e.clientY, mx: 0, my: 0 };
+  const base = $('stickBase');
+  base.style.left = (e.clientX - rect.left) + 'px';
+  base.style.top = (e.clientY - rect.top) + 'px';
+  base.classList.remove('hidden');
+  $('stickKnob').style.transform = 'translate(-50%, -50%)';
+  $('stickHint').classList.add('hidden');
+  stickTimer = setInterval(sendStick, STICK_KEEPALIVE_MS);
+});
+zone.addEventListener('pointermove', (e) => {
+  if (!stick || e.pointerId !== stick.id) return;
+  let dx = (e.clientX - stick.x0) / STICK_R, dy = (e.clientY - stick.y0) / STICK_R;
+  const mag = Math.hypot(dx, dy);
+  if (mag > 1) { dx /= mag; dy /= mag; }
+  $('stickKnob').style.transform = `translate(calc(-50% + ${dx * STICK_R}px), calc(-50% + ${dy * STICK_R}px))`;
+  const live = Math.min(mag, 1) >= STICK_DEAD;
+  stick.mx = live ? dx : 0; stick.my = live ? dy : 0;
+  if (performance.now() - stickSentAt >= STICK_SEND_MS) sendStick();
+});
+for (const ev of ['pointerup', 'pointercancel']) {
+  zone.addEventListener(ev, (e) => { if (stick && e.pointerId === stick.id) releaseStick(); });
+}
+// 分頁被切走時，搖桿一定要放開，不然角色會一直跑
+document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') releaseStick(); });
 
 // ---------- Wake Lock：讓螢幕不要暗掉（不支援就略過）----------
 let wakeLock = null;

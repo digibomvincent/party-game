@@ -207,12 +207,12 @@ $('repickBtn').onclick = () => { repicking = true; pickStep = 'char'; pickMsg = 
 function setScreen(msg, btnText, enabled, color) {
   $('msg').innerHTML = `<div>${msg}</div>`;
   $('pad').classList.toggle('hidden', enabled !== true);
-  $('stickZone').classList.toggle('hidden', enabled !== 'stick');
+  $('soccerPad').classList.toggle('hidden', enabled !== 'stick');
   $('bigBtn').classList.toggle('hidden', !!enabled);
-  if (enabled !== 'stick') releaseStick();
+  if (enabled !== 'stick') releaseAll();
   $('bigBtn').textContent = btnText;
   $('bigBtn').disabled = true;
-  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('stickKnob')]) el.style.setProperty('--c', color);
+  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('stickKnob'), $('btnNeck'), $('btnDash')]) el.style.setProperty('--c', color);
   if (!enabled) { lastSide = null; updateNext(); }
 }
 
@@ -245,7 +245,7 @@ function render() {
       const text = { win: '你們贏了！', lose: '這場輸了', draw: '平手' }[me.result] || '比賽結束';
       setScreen(`${board}<br>${team}　${text}`, { win: '勝利', lose: '落敗', draw: '平手' }[me.result] || '結束', false, color); return;
     }
-    const hint = phase === 'countdown' ? '預備…' : phase === 'goal' ? '進球！' : '用搖桿跑位，把球推進對方球門';
+    const hint = phase === 'countdown' ? '預備…' : phase === 'goal' ? '進球！' : '頭槌把球打進對方球門';
     setScreen(`${board}<br>你是 ${team}　<small>${hint}</small>`, '', 'stick', color); return;
   }
   if (phase === 'result') {            // 全部跑完：顯示總名次
@@ -306,27 +306,42 @@ for (const [side, id] of [['L', 'btnL'], ['R', 'btnR']]) {
 }
 document.addEventListener('contextmenu', (e) => e.preventDefault()); // 禁止長按選單
 
-// ---------- 足球：浮動搖桿（送 input 事件 { mx, my }，-1~1）----------
+// ---------- 足球：浮動搖桿 + 頭槌 / 衝刺按鈕（送 input 事件 { mx, my, dash, neck }）----------
 const STICK_R = 60;            // 搖桿拖到這個距離（像素）就是推到底
 const STICK_DEAD = 0.15;       // 死區：太小的移動當作沒動，避免手指微抖
 const STICK_SEND_MS = 50;      // 拖動時最多每 50ms 送一次
-const STICK_KEEPALIVE_MS = 150; // 按住不動時也定期重送，host 才不會以為斷線
-let stick = null;              // 目前按著的手指 { id, x0, y0, mx, my }
-let stickSentAt = 0, stickTimer = null;
+const KEEPALIVE_MS = 150;      // 有東西按住時也定期重送整組輸入，host 才不會以為斷線
+let stick = null;              // 目前按著搖桿的手指 { id, x0, y0, mx, my }
+const held = { neck: false, dash: false };   // 兩顆按鈕是否按著
+let sentAt = 0, keepTimer = null;
 
-function sendStick() {
+function sendInput() {
   const r2 = (v) => Math.round(v * 100) / 100;
-  socket.emit('input', { mx: r2(stick ? stick.mx : 0), my: r2(stick ? stick.my : 0) });
-  stickSentAt = performance.now();
+  socket.emit('input', { mx: r2(stick ? stick.mx : 0), my: r2(stick ? stick.my : 0), dash: held.dash, neck: held.neck });
+  sentAt = performance.now();
 }
-function releaseStick() {       // 放開 / 離開足球畫面：搖桿歸零並通知 host
+// 有任何東西按著就定期重送；全部放開就停
+function updateKeepAlive() {
+  const active = !!stick || held.neck || held.dash;
+  if (active && !keepTimer) keepTimer = setInterval(sendInput, KEEPALIVE_MS);
+  if (!active && keepTimer) { clearInterval(keepTimer); keepTimer = null; }
+}
+function releaseStick() {
   if (!stick) return;
   stick = null;
-  clearInterval(stickTimer);
   $('stickBase').classList.add('hidden');
   $('stickHint').classList.remove('hidden');
-  sendStick();
+  updateKeepAlive(); sendInput();
 }
+function releaseAll() {          // 離開足球畫面 / 分頁被切走：搖桿與按鈕全部放開並通知 host
+  const any = !!stick || held.neck || held.dash;
+  stick = null; held.neck = held.dash = false;
+  $('stickBase').classList.add('hidden'); $('stickHint').classList.remove('hidden');
+  for (const id of ['btnNeck', 'btnDash']) $(id).classList.remove('pressed');
+  updateKeepAlive();
+  if (any) sendInput();
+}
+
 const zone = $('stickZone');
 zone.addEventListener('pointerdown', (e) => {
   e.preventDefault();
@@ -340,7 +355,7 @@ zone.addEventListener('pointerdown', (e) => {
   base.classList.remove('hidden');
   $('stickKnob').style.transform = 'translate(-50%, -50%)';
   $('stickHint').classList.add('hidden');
-  stickTimer = setInterval(sendStick, STICK_KEEPALIVE_MS);
+  updateKeepAlive();
 });
 zone.addEventListener('pointermove', (e) => {
   if (!stick || e.pointerId !== stick.id) return;
@@ -350,13 +365,33 @@ zone.addEventListener('pointermove', (e) => {
   $('stickKnob').style.transform = `translate(calc(-50% + ${dx * STICK_R}px), calc(-50% + ${dy * STICK_R}px))`;
   const live = Math.min(mag, 1) >= STICK_DEAD;
   stick.mx = live ? dx : 0; stick.my = live ? dy : 0;
-  if (performance.now() - stickSentAt >= STICK_SEND_MS) sendStick();
+  if (performance.now() - sentAt >= STICK_SEND_MS) sendInput();
 });
 for (const ev of ['pointerup', 'pointercancel']) {
   zone.addEventListener(ev, (e) => { if (stick && e.pointerId === stick.id) releaseStick(); });
 }
-// 分頁被切走時，搖桿一定要放開，不然角色會一直跑
-document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') releaseStick(); });
+
+// 頭槌（按住蓄力、放開撞出去）、衝刺（按下就觸發）：按下 / 放開都立刻通知 host
+for (const [key, id, buzz] of [['neck', 'btnNeck', [15]], ['dash', 'btnDash', [25]]]) {
+  const btn = $(id);
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    btn.setPointerCapture(e.pointerId);
+    held[key] = true; btn.classList.add('pressed');
+    updateKeepAlive(); sendInput();
+    vibrate(buzz);
+  });
+  const up = () => {
+    if (!held[key]) return;
+    held[key] = false; btn.classList.remove('pressed');
+    updateKeepAlive(); sendInput();
+    if (key === 'neck') vibrate([30]);              // 放開時震一下：撞出去了
+  };
+  btn.addEventListener('pointerup', up);
+  btn.addEventListener('pointercancel', up);
+}
+// 分頁被切走時，搖桿與按鈕一定要放開，不然角色會一直跑或一直蓄力
+document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') releaseAll(); });
 
 // ---------- Wake Lock：讓螢幕不要暗掉（不支援就略過）----------
 let wakeLock = null;

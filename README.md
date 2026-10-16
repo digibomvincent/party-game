@@ -4,7 +4,7 @@
 
 目前的遊戲：
 - 🏃 **跑步**：用手機**左右兩顆按鈕交替連按**讓自己的角色往終點跑。
-- ⚽ **足球**（測試中）：俯視球場，用虛擬搖桿跑位推球；紅藍分隊（最多 5v5）、進球計分、3 分鐘比賽、平手金球加時、結算。之後會有頭槌與衝刺，規劃見 [`docs/soccer-plan.md`](docs/soccer-plan.md)。
+- ⚽ **足球**（測試中）：俯視球場，用虛擬搖桿跑位推球；紅藍分隊（最多 5v5）、進球計分、3 分鐘比賽、平手金球加時、結算。手機左邊是搖桿，右邊兩顆按鈕：**頭槌**（按住蓄力、放開後脖子伸長把球撞出去，蓄越久打越遠）和**衝刺**（有冷卻）。道具之後再做，規劃見 [`docs/soccer-plan.md`](docs/soccer-plan.md)。
 
 - **每組最多 5 人**，人數不能整除時平均分組（10 人 → 5+5、11 人 → 4+4+3），全部組別跑完後依「抵達時間」結算總成績。
 - 角色可以重複，**衣服顏色同一場不能重複**（共 12 色，所以最多 12 人能上場）。
@@ -101,7 +101,7 @@ npm start
 | `player:join` | 手機 → server → host | `{ room, playerId, name }`（server 轉給 host 時為 `{ playerId, name }`）；手機有 callback `{ ok, error }` |
 | `game:state` | host → 所有手機 | `{ phase, heat, totalHeats, taken }`（`taken` = 已被選走的顏色），phase 為 `lobby / countdown / racing / heatResult / result` |
 | `tap` | 手機 → host | `{ side }`，side 為 `L / R / both`（server 補上 `playerId`） |
-| `input` | 手機 → server → host | `{ mx, my, dash, neck }`，足球的持續輸入（搖桿方向 -1~1、按鈕）；server 補上 `playerId` 並限制範圍 |
+| `input` | 手機 → server → host | `{ mx, my, dash, neck }`，足球的持續輸入（搖桿方向 -1~1；衝刺、頭槌是否按住）；有東西按住時每 150ms 重送一次整組，server 補上 `playerId` 並限制範圍 |
 | `player:pick` | 手機 → server → host | `{ charId, color }`；host 檢查顏色有沒有被選走，結果用 `player:status` 回 |
 | `player:status` | host → 單一手機 | `{ playerId, status }`；status 含 `role / heat / picked / charName / color / finished / heatRank / overallRank / finishTime` |
 | `player:left` | server → host | `{ playerId }`，玩家斷線 |
@@ -122,6 +122,10 @@ npm start
 | `OVERTIME_SECONDS` | 平手時金球加時最久幾秒；加時仍沒進球就算平手 |
 | `COUNTDOWN_SECONDS` / `GOAL_PAUSE_MS` | 開球倒數秒數／進球後慶祝多久（慶祝與倒數時比賽時間暫停） |
 | `MAX_SPEED` / `ACCEL` | 角色最高速度／加減速的靈敏度 |
+| `CHARGE_SECONDS` / `CHARGE_MOVE` | 頭槌蓄滿要多久／蓄力時移動速度的比例 |
+| `NECK_MIN` / `NECK_MAX` | 脖子最短／最長伸出的距離 |
+| `KICK_MIN` / `KICK_MAX` | 頭槌把球打出去的速度（輕點／蓄滿） |
+| `DASH_SPEED` / `DASH_SECONDS` / `DASH_COOLDOWN` | 衝刺速度、持續時間、冷卻 |
 | `BALL_DRAG` / `WALL_BOUNCE` / `HIT_BOUNCE` | 球的滾動阻力／撞牆彈性／被角色撞時的彈性 |
 
 規則：紅隊守左邊球門、攻右邊球門，藍隊相反；球整顆越過球門線才算進球。最後碰到球的是對方隊員則算**烏龍球**（得分給進攻隊，但不記個人進球）。

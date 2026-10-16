@@ -1,22 +1,72 @@
 {
   "characters": [
-    { "id": "c1", "name": "小笑", "img": "img/char1.png" },
-    { "id": "c2", "name": "小酷", "img": "img/char2.png" },
-    { "id": "c3", "name": "小貓", "img": "img/char3.png" },
-    { "id": "c4", "name": "小熊", "img": "img/char4.png" }
+    {
+      "id": "c1",
+      "name": "07",
+      "art": "img/07.png",
+      "head": "img/07_head.png"
+    },
+    {
+      "id": "c2",
+      "name": "小酷"
+    },
+    {
+      "id": "c3",
+      "name": "小貓"
+    },
+    {
+      "id": "c4",
+      "name": "小熊"
+    }
   ],
   "colors": [
-    { "name": "紅", "hex": "#ef4444" },
-    { "name": "橘", "hex": "#f97316" },
-    { "name": "黃", "hex": "#facc15" },
-    { "name": "綠", "hex": "#22c55e" },
-    { "name": "青", "hex": "#14b8a6" },
-    { "name": "藍", "hex": "#3b82f6" },
-    { "name": "靛", "hex": "#6366f1" },
-    { "name": "紫", "hex": "#a855f7" },
-    { "name": "粉", "hex": "#ec4899" },
-    { "name": "白", "hex": "#f1f5f9" },
-    { "name": "灰", "hex": "#94a3b8" },
-    { "name": "棕", "hex": "#a16207" }
+    {
+      "name": "紅",
+      "hex": "#ef4444"
+    },
+    {
+      "name": "橘",
+      "hex": "#f97316"
+    },
+    {
+      "name": "黃",
+      "hex": "#facc15"
+    },
+    {
+      "name": "綠",
+      "hex": "#22c55e"
+    },
+    {
+      "name": "青",
+      "hex": "#14b8a6"
+    },
+    {
+      "name": "藍",
+      "hex": "#3b82f6"
+    },
+    {
+      "name": "靛",
+      "hex": "#6366f1"
+    },
+    {
+      "name": "紫",
+      "hex": "#a855f7"
+    },
+    {
+      "name": "粉",
+      "hex": "#ec4899"
+    },
+    {
+      "name": "白",
+      "hex": "#f1f5f9"
+    },
+    {
+      "name": "灰",
+      "hex": "#94a3b8"
+    },
+    {
+      "name": "棕",
+      "hex": "#a16207"
+    }
   ]
 }

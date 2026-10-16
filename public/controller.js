@@ -127,12 +127,38 @@ socket.on('room:closed', () => {
 });
 
 // ---------- 選角色、選衣服顏色 ----------
+// 上方大圖 = 目前選到的角色（art）；下排小方格 = 各角色的頭（head）。沒有圖檔的角色用預設臉。
+function setBigArt(c, i) {
+  const box = $('bigArt');
+  box.innerHTML = '';
+  const fallback = () => {                                     // 沒有大圖：畫大一點的預設臉（有 head 就用 head）
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 300;
+    CharArt.drawFace(cv.getContext('2d'), 300, i);
+    CharArt.loadImage(c, (img) => { const g = cv.getContext('2d'); g.clearRect(0, 0, 300, 300); CharArt.drawImage(g, img, 300); });
+    box.replaceChildren(cv);
+  };
+  if (!c.art) { fallback(); return; }
+  const img = new Image();
+  img.onerror = fallback;
+  img.src = c.art;
+  box.append(img);
+}
+function selectChar(id) {
+  pickedChar = id;
+  const i = Math.max(0, cfg.characters.findIndex((c) => c.id === id));
+  setBigArt(cfg.characters[i], i);
+  [...$('pickGrid').children].forEach((el, k) => el.classList.toggle('sel', k === i));
+}
 function renderPick() {
   const grid = $('pickGrid');
   grid.innerHTML = '';
   $('pickMsg').textContent = pickMsg;
   $('pickBack').classList.toggle('hidden', pickStep !== 'color');
+  $('pickOk').classList.toggle('hidden', pickStep !== 'char');
   grid.className = pickStep === 'char' ? 'chars' : 'colors';
+  if (!cfg.characters.length) return;
+  if (!cfg.characters.some((c) => c.id === pickedChar)) pickedChar = cfg.characters[0].id;
 
   if (pickStep === 'char') {
     $('pickTitle').textContent = '選你的角色';
@@ -141,19 +167,21 @@ function renderPick() {
       b.className = 'charBtn';
       const cv = document.createElement('canvas');
       cv.width = cv.height = 120;
-      cv.style.cssText = 'width:100%;max-width:120px;height:auto';
       CharArt.drawFace(cv.getContext('2d'), 120, i);           // 先畫預設臉
-      CharArt.loadImage(c, (img) => {                           // 有圖檔就換成圖檔
+      CharArt.loadImage(c, (img) => {                           // 有 head 圖就換成頭
         const g = cv.getContext('2d');
         g.clearRect(0, 0, 120, 120);
         CharArt.drawImage(g, img, 120);
       });
-      b.append(cv, c.name);
-      b.onclick = () => { pickedChar = c.id; pickStep = 'color'; pickMsg = ''; renderPick(); };
+      b.append(cv);
+      b.onclick = () => selectChar(c.id);
       grid.append(b);
     });
+    selectChar(pickedChar);
   } else {
     $('pickTitle').textContent = '選衣服顏色';
+    const i = cfg.characters.findIndex((c) => c.id === pickedChar);
+    setBigArt(cfg.characters[i], i);
     const mine = status && status.color;
     cfg.colors.forEach((c) => {
       const b = document.createElement('button');
@@ -170,6 +198,7 @@ function renderPick() {
     });
   }
 }
+$('pickOk').onclick = () => { pickStep = 'color'; pickMsg = ''; renderPick(); };
 $('pickBack').onclick = () => { pickStep = 'char'; pickMsg = ''; renderPick(); };
 $('repickBtn').onclick = () => { repicking = true; pickStep = 'char'; pickMsg = ''; render(); };
 

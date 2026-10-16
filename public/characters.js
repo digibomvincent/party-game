@@ -1,8 +1,8 @@
 // ============================================================
 // characters.js － 主畫面與手機共用：角色大頭的畫法
-//   - 角色資料在 characters.json（img 是你之後要放的圖：public/img/char1.png ...）
-//   - 圖檔存在就用圖檔；還沒有圖（載入失敗）就畫下面的預設臉
-//   - 圖檔建議：正方形、透明背景 PNG（程式會原比例置中縮放，不裁切）
+//   - 角色資料在 characters.json：每個角色有 art（選角時顯示的大張角色圖）和 head（小方格與遊戲中的頭，建議透明背景 PNG）
+//   - 沒有填圖檔、或載入失敗的角色，就畫下面的預設臉
+//   - 圖不會被裁切，只會原比例置中縮放
 // ============================================================
 const CharArt = {
   // 預設臉：index 0~3 對應 characters.json 裡的順序
@@ -47,12 +47,12 @@ const CharArt = {
     }
     g.restore();
   },
-  // 試著載入角色圖檔；載入失敗就什麼都不做（維持預設臉）
+  // 試著載入角色的頭（head）；沒填或載入失敗就什麼都不做（維持預設臉）
   loadImage(c, cb) {
-    if (!c.img) return;
+    if (!c.head) return;
     const im = new Image();
     im.onload = () => cb(im);
-    im.src = c.img;
+    im.src = c.head;
   },
   // 把圖檔原比例置中畫進 size x size
   drawImage(g, img, size) {

@@ -21,7 +21,7 @@ const LANE_COUNT = PLAYERS_PER_HEAT;
 const LANE_TOP = 90, LANE_HEIGHT = 120;      // 一組最多 5 條跑道
 const CHAR_SCALE = 0.85;         // 角色整體縮放（配合跑道高度）
 const START_X = 150, FINISH_X = 1140, BLOCK_SIZE = 70;
-const HEAD_SIZE = 60;            // 大頭顯示大小（像素）
+const HEAD_SIZE = 76;            // 大頭顯示大小（像素）
 const BODY_SCALE = 0.9;          // 身體 sprite 縮放
 const BODY_FRAME_W = 80, BODY_FRAME_H = 100, BODY_FRAMES = 6;
 const PHOTO_PX = 128;            // 大頭貼圖的解析度
@@ -184,7 +184,7 @@ class RaceScene extends Phaser.Scene {
       const head = this.add.image(0, headY, p.photo ? 'head-' + p.id : 'char-' + p.charId)
         .setDisplaySize(HEAD_SIZE, HEAD_SIZE);
       const c = this.add.container(START_X, y + 28 * CHAR_SCALE, [body, head]).setScale(CHAR_SCALE);
-      const label = this.add.text(START_X, y - 52, p.name, { fontSize: '22px', color: '#fff' }).setOrigin(0.5);
+      const label = this.add.text(START_X, y - 22, p.name, { fontSize: '22px', color: '#fff', stroke: '#000', strokeThickness: 4 }).setOrigin(1, 0.5);  // 名字放在頭的左邊
       return { p, c, body, head, label, color, baseY: y + 28 * CHAR_SCALE, headY, hop: 0, jump: 0, fallY: 0, falling: false,
         lastPos: p.pos, lastFallAt: p.fallAt, lastHopAt: p.hopAt, celebrated: false };
     });
@@ -201,7 +201,7 @@ class RaceScene extends Phaser.Scene {
 
   // 角色頭上飄一個小表情
   fx(s, emoji) {
-    const t = this.add.text(s.c.x, s.baseY - 85, emoji, { fontSize: '30px' }).setOrigin(0.5).setDepth(6);
+    const t = this.add.text(s.c.x, s.baseY - 100, emoji, { fontSize: '30px' }).setOrigin(0.5).setDepth(6);
     this.tweens.add({ targets: t, y: t.y - 30, alpha: 0, duration: 700, onComplete: () => t.destroy() });
   }
 
@@ -248,7 +248,7 @@ class RaceScene extends Phaser.Scene {
       const targetX = START_X + (s.p.pos / TRACK_LENGTH) * (FINISH_X - START_X);
       const dx = targetX - s.c.x;
       s.c.x += dx * 0.25;
-      s.label.x = s.c.x;
+      s.label.x = s.c.x - HEAD_SIZE * CHAR_SCALE / 2 - 4;
       s.label.setText(s.p.finished ? `${s.p.name}  第${s.p.heatRank}名` : s.p.name);
       // 在移動就播跑步動畫（越快播越快），停下來就站著
       const running = Math.abs(dx) > 0.6 && !s.p.finished && !s.falling;

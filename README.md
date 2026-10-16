@@ -15,9 +15,9 @@ party-race/
 └── public/
     ├── host.html / host.js            # 主畫面（Phaser 3 畫跑道；遊戲邏輯都在這）
     ├── controller.html / controller.js # 手機控制器
-    ├── characters.json                # 角色清單（4 個）與可選的衣服顏色（12 色）
+    ├── characters.json                # 角色清單（4 個，每個有 art 大圖與 head 頭圖）與可選的衣服顏色（12 色）
     ├── characters.js                  # 主畫面與手機共用：預設角色臉的畫法、載入圖檔
-    └── img/                           # 放角色圖：char1.png ~ char4.png（正方形、透明背景；沒放就用預設臉）
+    └── img/                           # 角色圖：NN.png 是選角時的大圖，NN_head.png 是頭（透明背景 PNG；沒填的角色用預設臉）
 ```
 
 ## 啟動
@@ -41,6 +41,12 @@ npm start
 - **手機打不開**：Windows 防火牆第一次會問 Node.js，請選「允許私人網路」。
 - **QR Code 的 IP 不對**（電腦有多張網卡）：用 `$env:LAN_IP="192.168.x.x"; npm start` 手動指定。
 - **Wake Lock、震動**：Wake Lock 只在 https 下有效（部署到 Render 就有）；iPhone 不支援震動。
+
+## 新增 / 更換角色圖
+1. 大圖 `xx.png`、頭 `xx_head.png`（透明背景）放進 `public/img/`。
+2. 在 `public/characters.json` 的 `characters` 裡填上 `"art": "img/xx.png"`、`"head": "img/xx_head.png"`。
+3. 選角畫面：下排小方格是 `head`，點選後上方顯示 `art`；比賽時 `head` 會接在跑步身體上。
+4. 大圖檔案越大，手機載入越慢，建議壓到 1MB 以內。
 
 ## 遊戲流程
 

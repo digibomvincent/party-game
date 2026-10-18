@@ -9,6 +9,7 @@
 //   stop()                   回大廳時呼叫，清掉計時器、面板、畫面
 //   onInput(playerId, data)  收到手機的輸入：tap 事件 { side }（跑步）或 input 事件 { mx, my, dash, neck }（足球）
 //   onPlayerLeft(player)     有人斷線（大廳之外的階段）
+//   onPlayerJoin(player)     有人加入或重連（遊戲進行中）
 //   onPhase(phase)           階段切換時更新遊戲自己的面板
 //   statusOf(player)         傳給某位玩家手機的遊戲狀態（和通用狀態合併）
 //   stateExtra()             廣播給所有手機的 game:state 附加欄位
@@ -185,6 +186,7 @@ socket.on('player:join', ({ playerId, name, photo }) => {
   sendStatus(p);
   broadcastState();
   renderLobby();
+  if (Hub.currentGame && Hub.currentGame.onPlayerJoin) Hub.currentGame.onPlayerJoin(p);   // 遊戲中重連
 });
 
 // 玩家斷線

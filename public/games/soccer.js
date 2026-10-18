@@ -19,6 +19,7 @@ const SoccerGame = (() => {
   const MAX_PLAYERS = 10;        // 最多上場人數（5v5），其餘的人先等下一場
   const MATCH_SECONDS = 180;     // 一場比賽 3 分鐘
   const OVERTIME_SECONDS = 60;   // 平手時的金球加時，最久 60 秒；還是沒進就算平手
+  const FORFEIT_GRACE_MS = 15000; // 一整隊的人都斷線時，等多久還沒人回來就判該隊棄權
   const COUNTDOWN_SECONDS = 3;   // 開球前倒數
   const GOAL_PAUSE_MS = 2500;    // 進球後慶祝多久
   // 紅隊守左邊球門、攻右邊球門；藍隊相反
@@ -77,6 +78,8 @@ const SoccerGame = (() => {
   let kickEvent = { n: 0, x: 0, y: 0, power: 0 };       // 頭槌踢到球的事件（場景播特效）
   let dashEvent = { n: 0, id: null };                    // 衝刺事件
   let result = null;             // 結算：{ winner: 0 | 1 | -1(平手) }
+  let notice = '';               // 畫面上方的小提示（例如「紅隊全員離線」）
+  let forfeitTimer = null;
   let timers = [];
   function clearTimers() { timers.forEach(clearTimeout); timers = []; }
   function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
@@ -115,6 +118,7 @@ const SoccerGame = (() => {
     const now = Date.now();
     // 角色：搖桿方向 → 目標速度；頭槌（蓄力→放開→脖子伸出去）；衝刺
     for (const f of field) {
+      if (!f.p.online) { f.vx = 0; f.vy = 0; resetActions(f); continue; }   // 離線的人變成不會動、不會擋路的幽靈
       const inp = S(f.p).input;
       const stale = now - inp.at > INPUT_TIMEOUT_MS;                  // 太久沒收到更新：當作全部放開（防斷線卡住）
       let mx = stale ? 0 : inp.mx, my = stale ? 0 : inp.my;
@@ -174,6 +178,7 @@ const SoccerGame = (() => {
     for (let i = 0; i < field.length; i++) {
       for (let j = i + 1; j < field.length; j++) {
         const a = field[i], b = field[j];
+        if (!a.p.online || !b.p.online) continue;
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = PLAYER_R * 1.8;
         if (d > 0 && d < min) {
           const push = (min - d) / 2, nx = dx / d, ny = dy / d;
@@ -189,6 +194,7 @@ const SoccerGame = (() => {
     collideBallWalls();
     // 球和角色：角色把球推開（把角色當作很重的東西），並記下最後碰球的人
     for (const f of field) {
+      if (!f.p.online) continue;
       const dx = ball.x - f.x, dy = ball.y - f.y, d = Math.hypot(dx, dy), min = PLAYER_R + BALL_R;
       if (d > 0 && d < min) {
         const nx = dx / d, ny = dy / d;
@@ -293,15 +299,34 @@ const SoccerGame = (() => {
     later(tick, 1000);
   }
 
-  function endMatch() {
-    clearTimers();
+  // 一整隊的人都斷線：等一段時間（讓手機有機會重連），還沒人回來就判該隊棄權，另一隊獲勝；兩隊都沒人就直接回大廳
+  function clearForfeit() { if (forfeitTimer) { clearTimeout(forfeitTimer); forfeitTimer = null; } notice = ''; }
+  function checkTeams() {
+    if (!['countdown', 'playing', 'goal'].includes(Hub.phase)) { clearForfeit(); return; }
+    const dead = [0, 1].filter((t) => field.some((f) => S(f.p).team === t) && !field.some((f) => S(f.p).team === t && f.p.online));
+    if (!dead.length) { clearForfeit(); return; }
+    notice = `${dead.map((t) => TEAMS[t].name).join('、')}全員離線，${FORFEIT_GRACE_MS / 1000} 秒內沒人回來就判棄權`;
+    if (forfeitTimer) return;
+    forfeitTimer = setTimeout(() => {
+      forfeitTimer = null; notice = '';
+      const still = [0, 1].filter((t) => field.some((f) => S(f.p).team === t) && !field.some((f) => S(f.p).team === t && f.p.online));
+      if (!still.length || !['countdown', 'playing', 'goal'].includes(Hub.phase)) return;
+      if (still.length === 2) Hub.backToLobby();                  // 兩隊都沒人了
+      else endMatch(1 - still[0]);                                // 沒人的那隊棄權
+    }, FORFEIT_GRACE_MS);
+  }
+
+  function endMatch(forfeitWinner) {
+    clearTimers(); clearForfeit();
     centerText = '';
-    const winner = score[0] > score[1] ? 0 : score[1] > score[0] ? 1 : -1;
+    const forfeited = forfeitWinner === 0 || forfeitWinner === 1;
+    const winner = forfeited ? forfeitWinner : score[0] > score[1] ? 0 : score[1] > score[0] ? 1 : -1;
     result = { winner };
     // 結算面板：比分 + 每人進球數
-    $('soccerTitle').textContent = winner < 0 ? '🤝 平手！' : `🏆 ${TEAMS[winner].name}獲勝！`;
+    $('soccerTitle').textContent = winner < 0 ? '🤝 平手！' : `🏆 ${TEAMS[winner].name}獲勝！` + (forfeited ? '（對方全員離線）' : '');
     $('soccerScore').innerHTML = `<span style="color:${TEAMS[0].css}">紅隊 ${score[0]}</span> : <span style="color:${TEAMS[1].css}">${score[1]} 藍隊</span>`;
     const rows = field.map((f) => f.p).sort((a, b) => S(b).goals - S(a).goals);
+    $('soccerList').classList.toggle('many', rows.length > 6);
     $('soccerList').innerHTML = rows.map((p) =>
       `<li><span style="color:${TEAMS[S(p).team].css}">● </span><span style="flex:1">${escapeHtml(p.name)}</span><span>${S(p).goals} 球</span></li>`).join('');
     setPhase('result');
@@ -333,6 +358,7 @@ const SoccerGame = (() => {
       this.redText = this.add.text(CX - 90, 56, '', { ...style, color: TEAMS[0].css }).setOrigin(1, 0.5);
       this.blueText = this.add.text(CX + 90, 56, '', { ...style, color: TEAMS[1].css }).setOrigin(0, 0.5);
       this.timeText = this.add.text(CX, 56, '', { ...style, fontSize: '40px' }).setOrigin(0.5);
+      this.noticeText = this.add.text(CX, 92, '', { fontSize: '22px', color: '#fde68a', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(5000);
       // 正中間的大字（倒數、進球、加時）
       this.cdText = this.add.text(CX, CY - 20, '', { fontSize: '150px', color: '#fff', fontStyle: 'bold', align: 'center',
         stroke: '#000', strokeThickness: 12 }).setOrigin(0.5).setDepth(5000);
@@ -395,22 +421,27 @@ const SoccerGame = (() => {
     celebrate() {
       const team = goalEvent.team;
       const x = team === 0 ? FIELD.r : FIELD.l;
-      this.add.particles(x, CY, 'dot', {
-        speed: { min: 150, max: 380 }, angle: team === 0 ? { min: 120, max: 240 } : { min: -60, max: 60 }, gravityY: 300, lifespan: 1400,
-        scale: { start: 1.2, end: 0.4 }, rotate: { min: 0, max: 360 }, quantity: 40, emitting: false,
-        tint: [TEAMS[team].color, 0xffffff, 0xfacc15],
-      }).setDepth(4000).explode(40);
+      this.burst(x, CY, 1400, {
+        speed: { min: 150, max: 380 }, angle: team === 0 ? { min: 120, max: 240 } : { min: -60, max: 60 }, gravityY: 300,
+        scale: { start: 1.2, end: 0.4 }, rotate: { min: 0, max: 360 }, tint: [TEAMS[team].color, 0xffffff, 0xfacc15],
+      }, 40);
       const s = this.sprites.find((x2) => x2.f.p.id === goalEvent.scorerId);
       if (s) this.tweens.add({ targets: s.head, angle: 360, duration: 700, ease: 'Cubic.easeOut', onComplete: () => { s.head.angle = 0; } });
+    }
+
+    // 噴一陣粒子，播完就把發射器銷毀（不然一場比賽下來會累積成百上千個物件）
+    burst(x, y, lifespan, config, n) {
+      const em = this.add.particles(x, y, 'dot', { ...config, lifespan, quantity: n, emitting: false }).setDepth(4000);
+      em.explode(n);
+      this.time.delayedCall(lifespan + 200, () => em.destroy());
     }
 
     // 頭槌踢到球：小爆炸；力道越大越多
     kickBurst() {
       const n = Math.round(6 + kickEvent.power * 14);
-      this.add.particles(kickEvent.x, kickEvent.y, 'dot', {
-        speed: { min: 80, max: 120 + kickEvent.power * 260 }, lifespan: 350, scale: { start: 0.9, end: 0 }, quantity: n, emitting: false,
-        tint: [0xffffff, 0xfacc15, 0xf97316],
-      }).setDepth(4000).explode(n);
+      this.burst(kickEvent.x, kickEvent.y, 350, {
+        speed: { min: 80, max: 120 + kickEvent.power * 260 }, scale: { start: 0.9, end: 0 }, tint: [0xffffff, 0xfacc15, 0xf97316],
+      }, n);
     }
 
     // 衝刺：在腳下留一串殘影
@@ -437,6 +468,7 @@ const SoccerGame = (() => {
       this.redText.setText(`紅隊 ${score[0]}`);
       this.blueText.setText(`${score[1]} 藍隊`);
       this.timeText.setText(overtime ? `加時 ${sec}` : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
+      this.noticeText.setText(notice);
       this.cdText.setText(centerText).setFontSize(centerText.length > 4 ? 64 : 150);
 
       // 球
@@ -504,7 +536,7 @@ const SoccerGame = (() => {
     const list = [...players.values()].filter((p) => p.color).slice(0, MAX_PLAYERS);   // 選好角色與顏色的人，依加入順序，最多 10 人
     if (!list.length) return;
 
-    clearTimers();
+    clearTimers(); clearForfeit();
     players.forEach((p) => { delete p.soccer; });
     list.forEach((p, i) => { S(p).team = i % 2; });                       // 輪流分到紅、藍隊，人數會平均
     field = list.map((p) => newFielder(p, S(p).team));
@@ -519,7 +551,7 @@ const SoccerGame = (() => {
   }
 
   function stop() {
-    clearTimers();
+    clearTimers(); clearForfeit();
     field = []; version++;
     centerText = ''; result = null;
     players.forEach((p) => { delete p.soccer; });
@@ -541,7 +573,11 @@ const SoccerGame = (() => {
       if (!p || !field.some((f) => f.p === p) || typeof data.mx !== 'number') return;
       S(p).input = { mx: data.mx, my: data.my, dash: !!data.dash, neck: !!data.neck, at: Date.now() };
     },
-    onPlayerLeft(p) { if (p.soccer) p.soccer.input = { mx: 0, my: 0, dash: false, neck: false, at: 0 }; },
+    onPlayerLeft(p) {
+      if (p.soccer) p.soccer.input = { mx: 0, my: 0, dash: false, neck: false, at: 0 };
+      checkTeams();
+    },
+    onPlayerJoin() { checkTeams(); },                                  // 有人重連回來：取消棄權倒數
     onPhase(phase) {                                                   // 階段切換時更新結算面板
       $('soccerPanel').classList.toggle('hidden', phase !== 'result');
     },

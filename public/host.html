@@ -63,6 +63,9 @@
     ol.rank li { display: flex; justify-content: space-between; gap: 40px; padding: 8px 18px;
       background: #1f3347; margin-bottom: 8px; border-radius: 10px; }
     ol.rank li .dnf { color: #f87171; }
+    /* 人多（超過 6 筆）時改成兩欄、字小一點，結算畫面才放得下，按鈕不會被擠出螢幕 */
+    ol.rank.many { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; font-size: 22px; min-width: 780px; }
+    ol.rank.many li { margin: 0; padding: 6px 14px; gap: 16px; }
     .next-info { font-size: 22px; color: #9fb3c8; margin-bottom: 20px; }
 
     /* 右上角小提示：目前第幾組 */

@@ -49,7 +49,17 @@ function createRoomCode() {
   return code;
 }
 
+// ---------- 防洗頻：每個連線每秒最多送幾次（正常玩家遠低於這個數字）----------
+const RATE_LIMIT = { tap: 40, input: 60, 'player:pick': 10 };
+
 io.on('connection', (socket) => {
+  const hits = {};   // 事件名 -> { 這一秒的起點, 次數 }
+  function allow(event) {
+    const now = Date.now();
+    const h = hits[event] || (hits[event] = { t: now, n: 0 });
+    if (now - h.t >= 1000) { h.t = now; h.n = 0; }
+    return ++h.n <= RATE_LIMIT[event];
+  }
   // ---------- host 建立房間 ----------
   socket.on('host:create', (cb) => {
     const code = createRoomCode();
@@ -100,7 +110,7 @@ io.on('connection', (socket) => {
 
   // ---------- 手機按鍵 → 轉給 host（side：L 左 / R 右 / both 同時按）----------
   socket.on('tap', (data) => {
-    if (socket.data?.role !== 'player') return;
+    if (socket.data?.role !== 'player' || !allow('tap')) return;
     const side = data && data.side;
     if (side !== 'L' && side !== 'R' && side !== 'both') return;
     const room = rooms.get(socket.data.room);
@@ -110,7 +120,7 @@ io.on('connection', (socket) => {
   // ---------- 手機的持續輸入（足球的搖桿與按鈕）→ 轉給 host ----------
   //   mx, my：搖桿方向 -1~1；dash、neck：按鈕是否按住
   socket.on('input', (data) => {
-    if (socket.data?.role !== 'player') return;
+    if (socket.data?.role !== 'player' || !allow('input')) return;
     const room = rooms.get(socket.data.room);
     if (!room) return;
     const num = (v) => Math.max(-1, Math.min(1, Number(v) || 0));
@@ -122,7 +132,7 @@ io.on('connection', (socket) => {
 
   // ---------- 手機選角色 / 衣服顏色 → 轉給 host（host 負責檢查顏色有沒有被選走）----------
   socket.on('player:pick', (data) => {
-    if (socket.data?.role !== 'player') return;
+    if (socket.data?.role !== 'player' || !allow('player:pick')) return;
     const room = rooms.get(socket.data.room);
     if (!room) return;
     const charId = String(data?.charId || '').slice(0, 20);

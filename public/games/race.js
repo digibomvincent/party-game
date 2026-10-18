@@ -147,11 +147,13 @@ const RaceGame = (() => {
       this.tweens.add({ targets: s, hop: 26, duration: 260, yoyo: true, repeat: -1, ease: 'Sine.easeOut' });
       this.tweens.add({ targets: s.head, angle: 360, duration: 600, ease: 'Cubic.easeOut', onComplete: () => { s.head.angle = 0; } });
       this.tweens.add({ targets: s.body, angle: { from: -6, to: 6 }, duration: 200, yoyo: true, repeat: -1 });
-      this.add.particles(FINISH_X - 20, s.baseY - 60, 'dot', {
+      const em = this.add.particles(FINISH_X - 20, s.baseY - 60, 'dot', {
         speed: { min: 120, max: 320 }, angle: { min: 200, max: 340 }, gravityY: 600, lifespan: 1100,
         scale: { start: 1, end: 0.4 }, rotate: { min: 0, max: 360 }, quantity: 24, emitting: false,
         tint: [0xef4444, 0x3b82f6, 0x22c55e, 0xfacc15, 0xf472b6],
-      }).setDepth(5).explode(24);
+      }).setDepth(5);
+    em.explode(24);
+    this.time.delayedCall(1300, () => em.destroy());   // 播完就銷毀，避免累積
     }
 
     update() {
@@ -342,6 +344,7 @@ const RaceGame = (() => {
     const dnf = all.filter((p) => !S(p).finished).sort((a, b) => S(b).pos - S(a).pos);
     [...done, ...dnf].forEach((p, i) => { S(p).overallRank = i + 1; });
 
+    $('finalList').classList.toggle('many', [...done, ...dnf].length > 6);
     $('finalList').innerHTML = [...done, ...dnf].map((p) =>
       `<li><span>${S(p).overallRank}. ${escapeHtml(p.name)}</span>` +
       (S(p).finished ? `<span>${fmtTime(S(p).finishTime)}（第 ${S(p).heat + 1} 組）</span>` : `<span class="dnf">沒跑完</span>`) + `</li>`).join('');

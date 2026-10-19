@@ -29,7 +29,7 @@ const CANVAS_W = 1280, CANVAS_H = 720;
 const GAME_LIST = [
   { id: 'race',   icon: '🏃', name: '跑步', desc: '左右交替連按，衝向終點！', enabled: true },
   { id: 'soccer', icon: '⚽', name: '足球', desc: '搖桿跑位，用大頭把球頂進球門', enabled: true,  badge: '測試中' },
-  { id: 'spinner', icon: '🌀', name: '陀螺大戰', desc: '傾斜手機操控陀螺，把別人撞出平台', enabled: false, badge: '規劃中' },
+  { id: 'spinner', icon: '🌀', name: '陀螺大戰', desc: '操控圓盤互撞，把別人撞出平台', enabled: true,  badge: '開發中' },
 ];
 let selectedGame = 'race';   // 大廳目前選的遊戲
 

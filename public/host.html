@@ -57,6 +57,7 @@
 
     button { font-size: 28px; padding: 14px 48px; border: 0; border-radius: 14px; cursor: pointer;
       background: #22c55e; color: #052e14; font-weight: bold; font-family: inherit; }
+    button.hidden { display: none; }
     button:disabled { background: #3a4a5a; color: #7b8a99; cursor: not-allowed; }
 
     ol.rank { list-style: none; padding: 0; margin: 0 0 20px; font-size: 30px; text-align: left; min-width: 420px; }
@@ -133,6 +134,18 @@
     </div>
   </div>
 
+  <!-- 陀螺大戰：第 1 回合結束、最終結果 -->
+  <div id="spinnerPanel" class="panel hidden">
+    <h1 id="spinnerTitle"></h1>
+    <div id="spinnerSub" style="font-size:26px;color:#fde68a;margin-bottom:18px"></div>
+    <ol id="spinnerList" class="rank"></ol>
+    <div style="display:flex;gap:20px;justify-content:center">
+      <button id="spinnerNextBtn">開始第 2 回合</button>
+      <button id="spinnerAgainBtn" class="hidden">再來一場</button>
+      <button id="spinnerLobbyBtn" class="hidden" style="background:#3b82f6;color:#fff">回遊戲大廳</button>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
@@ -141,5 +154,6 @@
   <script src="host.js"></script>
   <script src="games/race.js"></script>
   <script src="games/soccer.js"></script>
+  <script src="games/spinner.js"></script>
 </body>
 </html>

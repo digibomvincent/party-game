@@ -1,4 +1,4 @@
-// 測試用：模擬多支手機加入並自動玩（跑步連打、足球搖桿 + 頭槌 + 衝刺）
+// 測試用：模擬多支手機加入並自動玩（跑步連打、足球搖桿 + 頭槌 + 衝刺、陀螺大戰搖桿）
 // 用法：npm run fake -- <房號> [人數=6] [--chaos]
 //   --chaos：隨機讓一些假人斷線，1～3 秒後用同一個 playerId 重新連回來（模擬手機沒訊號 / 切分頁）
 const { io } = require('socket.io-client');
@@ -49,9 +49,9 @@ function fakePlayer(i) {
     }
   }, 60 + i * 15));
 
-  // 足球：每 100ms 送一次整組輸入（像真的手機一樣有保活）
+  // 足球／陀螺大戰：每 100ms 送一次整組輸入（像真的手機一樣有保活）
   timers.push(setInterval(() => {
-    if (!socket || !socket.connected || state.game !== 'soccer') return;
+    if (!socket || !socket.connected || (state.game !== 'soccer' && state.game !== 'spinner')) return;
     if (!['countdown', 'playing', 'goal'].includes(state.phase) || !status || status.role !== 'player') return;
     const now = Date.now();
     angle += (Math.random() - 0.5) * 0.9;                       // 慢慢轉彎

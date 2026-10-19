@@ -216,6 +216,19 @@ function setScreen(msg, btnText, enabled, color) {
   if (!enabled) { lastSide = null; updateNext(); }
 }
 
+// 重生倒數：手機只在「死掉」和「復活」時才收到狀態，中間的秒數在手機上自己倒數
+let respawnTimer = null, respawnEnd = 0;
+function startRespawnTicker(ms) {
+  clearInterval(respawnTimer);
+  if (!ms) return;
+  respawnEnd = performance.now() + ms;
+  respawnTimer = setInterval(() => {
+    const left = Math.max(0, Math.ceil((respawnEnd - performance.now()) / 1000));
+    $('bigBtn').textContent = left > 0 ? `重生中 ${left}` : '重生中…';
+    if (left <= 0) clearInterval(respawnTimer);
+  }, 250);
+}
+
 function render() {
   if (!joined) return;
   const { phase, heat: cur, totalHeats } = gameState;
@@ -247,6 +260,25 @@ function render() {
     }
     const hint = phase === 'countdown' ? '預備…' : phase === 'goal' ? '進球！' : '頭槌把球打進對方球門';
     setScreen(`${board}<br>你是 ${team}　<small>${hint}</small>`, '', 'stick', color); return;
+  }
+  $('soccerPad').classList.toggle('solo', gameState.game === 'spinner');
+  if (gameState.game === 'spinner') {  // 陀螺大戰：整塊畫面是搖桿（S1 會改成傾斜手機）
+    const rd = me.round || gameState.round || 1;
+    const head = `第 ${rd} 回合　<b>${me.kills || 0}</b> 殺`;
+    if (phase === 'result') {
+      const text = me.finalRank ? (me.eliminated ? `第 ${me.finalRank} 名` : `最後留下來！第 ${me.finalRank} 名 🏆`) : '比賽結束';
+      setScreen(`${text}<br><small>共擊殺 ${me.kills || 0} 人</small>`, me.finalRank ? `第 ${me.finalRank} 名` : '結束', false, color); return;
+    }
+    if (phase === 'roundEnd') {
+      setScreen(`第 1 回合結束<br>你是第 <b>${me.roundRank || '-'}</b> 名（${me.kills || 0} 殺）`, '休息一下', false, color); return;
+    }
+    if (me.eliminated) { setScreen(`你被淘汰了<br><small>看看誰能撐到最後</small>`, '淘汰', false, color); return; }
+    if (!me.alive && phase === 'playing') {
+      startRespawnTicker(me.respawnMs);
+      setScreen(`被撞出去了！<br><small>${head}</small>`, '重生中…', false, color); return;
+    }
+    const hint = phase === 'countdown' ? '預備…' : rd === 1 ? '把別人撞出平台，被撞出去 5 秒後復活' : '最後留下來的人獲勝，不會復活！';
+    setScreen(`${head}<br><small>${hint}</small>`, '', 'stick', color); return;
   }
   if (phase === 'result') {            // 全部跑完：顯示總名次
     setScreen(me.finished ? `全部結束！你的總名次` + time : '全部結束！你沒跑完',

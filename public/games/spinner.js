@@ -1,13 +1,15 @@
 // ============================================================
-// games/spinner.js － 「陀螺大戰」遊戲（S0：圓盤互撞，把別人撞出平台）
+// games/spinner.js － 「陀螺大戰」遊戲（S1：碗型平台 + 手機陀螺儀操控；圓盤互撞，把別人撞出平台）
 //   - 個人混戰；共兩回合：
 //       第 1 回合 計時賽：被撞出平台 5 秒後復活，計算擊殺數
 //       第 2 回合 淘汰賽：不復活，平台慢慢縮小，剩最後 3 位就結束（人少時打到只剩 1 位）
 //   - 最終名次：第 2 回合留下來的人排前面（依第 1 回合擊殺數），其餘依淘汰順序（越晚淘汰名次越高）
-//   - S0 先用搖桿移動（手機端沿用足球的浮動搖桿）；之後 S1 才接手機陀螺儀；暫時沒有轉速與衝撞
+//   - 平台是中間下凹的「碗」：往中心衝會加速、往外圍衝會減速，所以比較不會自己衝出去；要把人撞出去得靠撞擊，而且在外圈撞最有效
+//   - 手機用陀螺儀（傾斜）操控，或用搖桿備案；開打前先有「準備」階段，等所有人按「準備好」
+//   - 暫時沒有轉速與衝撞
 //   - 物理全部在 host 端算（固定 60Hz）；角色大頭放在圓盤中間
 //   - 和大廳（host.js）的溝通只透過 Hub 與下面回傳的介面
-// 階段 phase：countdown → playing → roundEnd（第 1 回合結束）→ countdown → playing → result
+// 階段 phase：prepare（等大家準備好）→ countdown → playing → roundEnd（第 1 回合結束）→ countdown → playing → result
 // ============================================================
 const SpinnerGame = (() => {
   const { players, $, escapeHtml, setPhase, sendStatus } = Hub;
@@ -29,14 +31,22 @@ const SpinnerGame = (() => {
   const ROUND2_MAX_S = 150;            // 保險：第 2 回合最久打多久
   const COUNTDOWN_SECONDS = 3;
   const ROUND_END_AUTO_MS = 10000;     // 第 1 回合結束後，自動開始第 2 回合的等待時間
+  const PREPARE_MS = 25000;            // 準備階段最久等多久（時間到沒按準備好的人當作用搖桿）
   const FORFEIT_GRACE_MS = 15000;      // 所有人都離線超過這麼久就回大廳
 
   // ---------- 手感數值（要調整就改這裡）----------
   const DISC_R = 30;                   // 圓盤半徑
-  const ACCEL = 1500;                  // 推到底時的加速度（像素/秒²）
-  const DAMP = 2.0;                    // 滑行阻力（每秒；越小越滑）
-  const MAX_SPEED = 450;
+  const ACCEL = 1000;                  // 推到底時的加速度（像素/秒²）
+  const DAMP = 1.2;                    // 滑行阻力（每秒；越小越滑，在碗裡會來回晃一陣子才停）
+  const MAX_SPEED = 380;               // 自己操控能加速到的最高速度
+  const HARD_MAX_SPEED = 800;          // 被撞飛時允許的最高速度
+  const BOWL_G = 1400;                 // 碗的「重力」：在平台邊緣（半徑 ARENA_R）把圓盤拉向中心的加速度；越靠近中心越小。
+                                       //   要比 ACCEL 大：這樣自己用力往外衝，到邊緣就推不動了（不會自己衝出去）；
+                                       //   而被撞飛的速度可以到 HARD_MAX_SPEED，遠高於自己能跑的 MAX_SPEED，所以還是能把人撞出去。
+                                       //   （用離線模擬調過：亂走的假人 40 秒自己掉出去 ≈ 1 次，舊的平面設定 ≈ 44 次；8 個追擊 AI、90 秒約 20 次擊殺）
+                                       //   縮圈時碗不變，平台邊緣越來越靠近中心、拉力越來越小，所以越縮越容易掉出去
   const RESTITUTION = 0.9;             // 圓盤互撞的彈性（1 = 完全彈性）
+  const HIT_BOOST = 1.45;              // 撞擊力道加成（>1 比較誇張，撞得比較遠）
   const FALL_SECONDS = 0.7;            // 掉出平台後縮小旋轉掉下去的時間
   const INPUT_TIMEOUT_MS = 600;        // 超過這麼久沒收到搖桿更新，就當作放開
   const HEAD_PX = 46;                  // 圓盤中間的大頭顯示大小
@@ -61,6 +71,8 @@ const SpinnerGame = (() => {
   function clearTimers() { timers.forEach(clearTimeout); timers = []; }
   function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
   const discOf = (p) => discs.find((d) => d.p === p);
+  // 手機的操控方式與「準備好」：放在 p.spinnerCtrl，回大廳／再來一場都保留（手機已經授權過陀螺儀就不用再按）
+  const C = (p) => p.spinnerCtrl || (p.spinnerCtrl = { mode: '', ready: false });
   const totalKills = (p) => S(p).kills1 + S(p).kills2;
 
   function newDisc(p) {
@@ -107,18 +119,23 @@ const SpinnerGame = (() => {
         if (round === 1 && !S(d.p).eliminated && d.respawnAt && now >= d.respawnAt) respawn(d, now);
         continue;
       }
+      // 操控：搖桿／傾斜方向 → 加速度（已經跑到自己的最高速度、還往同方向推就不再加速）
       if (d.p.online) {
         const inp = S(d.p).input;
         let mx = inp.mx, my = inp.my;
         if (now - inp.at > INPUT_TIMEOUT_MS) { mx = 0; my = 0; }
         const mag = Math.hypot(mx, my);
         if (mag > 1) { mx /= mag; my /= mag; }
-        d.vx += mx * ACCEL * dt; d.vy += my * ACCEL * dt;
+        const along = mag > 0 ? (d.vx * mx + d.vy * my) / mag : 0;
+        if (along < MAX_SPEED) { d.vx += mx * ACCEL * dt; d.vy += my * ACCEL * dt; }
       }
+      // 碗：離中心越遠、被拉回中心的力越大（線性）。往中心衝會越來越快，往外衝會越來越慢
+      const rx = d.x - AX, ry = d.y - AY, rd = Math.hypot(rx, ry);
+      if (rd > 0.001) { const pull = BOWL_G * (rd / ARENA_R) * dt; d.vx -= (rx / rd) * pull; d.vy -= (ry / rd) * pull; }
       const drag = Math.exp(-DAMP * dt);
       d.vx *= drag; d.vy *= drag;
       const sp = Math.hypot(d.vx, d.vy);
-      if (sp > MAX_SPEED) { d.vx *= MAX_SPEED / sp; d.vy *= MAX_SPEED / sp; }
+      if (sp > HARD_MAX_SPEED) { d.vx *= HARD_MAX_SPEED / sp; d.vy *= HARD_MAX_SPEED / sp; }
       d.x += d.vx * dt; d.y += d.vy * dt;
       d.spin += dt * (6 + sp / 40);                              // 圓盤花紋轉動的角度（只是好看）
     }
@@ -135,7 +152,7 @@ const SpinnerGame = (() => {
         a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;     // 先分開
         const vrel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;                       // 沿著連線、互相靠近的速度
         if (vrel > 0) {
-          const j2 = ((1 + RESTITUTION) * vrel) / 2;
+          const j2 = (HIT_BOOST * (1 + RESTITUTION) * vrel) / 2;
           a.vx -= j2 * nx; a.vy -= j2 * ny; b.vx += j2 * nx; b.vy += j2 * ny;
           a.lastHit = { id: b.p.id, at: now }; b.lastHit = { id: a.p.id, at: now };
           if (vrel > 80) hitEvents.push({ x: a.x + nx * DISC_R, y: a.y + ny * DISC_R, power: Math.min(1, vrel / 500) });
@@ -199,6 +216,28 @@ const SpinnerGame = (() => {
   }
 
   // 準備開始某一回合：圓盤歸位，3、2、1 倒數
+  // 準備階段：等所有人（在線的）按「準備好」，或等到時間到；手機在這時請求陀螺儀權限、校正
+  function beginPrepare() {
+    clearTimers();
+    round = 1; arenaR = ARENA_R; elapsedMs = 0; remainingMs = ROUND1_SECONDS * 1000; elimOrder = [];
+    placeRing(); feed = []; centerText = ''; subText = '準備好了嗎？每個人在手機上按「準備好」';
+    $('spinnerPanel').classList.add('hidden');
+    setPhase('prepare');
+    later(() => { if (Hub.phase === 'prepare') beginRound(1); }, PREPARE_MS);
+    checkAllReady();
+  }
+  function checkAllReady() {
+    if (Hub.phase !== 'prepare') return;
+    const online = discs.filter((d) => d.p.online);
+    if (online.length && online.every((d) => C(d.p).ready)) {
+      clearTimers();
+      later(() => beginRound(1), 900);                         // 全部準備好：稍等一下就開始
+    }
+  }
+  function prepareLines() {
+    return discs.map((d) => `${!d.p.online ? '📵' : C(d.p).ready ? '✅' : '⏳'} ${d.p.name}  ${C(d.p).mode === 'gyro' ? '📱 體感' : C(d.p).mode === 'stick' ? '🕹 搖桿' : ''}`).join('\n');
+  }
+
   function beginRound(r) {
     clearTimers();
     round = r; arenaR = ARENA_R; elapsedMs = 0; remainingMs = ROUND1_SECONDS * 1000; elimOrder = r === 2 ? [] : elimOrder;
@@ -275,15 +314,26 @@ const SpinnerGame = (() => {
         const dot = this.textures.createCanvas('dot', 8, 8);
         dot.getContext().fillStyle = '#fff'; dot.getContext().fillRect(0, 0, 8, 8); dot.refresh();
       }
-      // 平台（畫在固定半徑，縮圈時整個縮放）
+      // 平台：碗型。中間深（暗）、外圈淺（亮），一圈一圈的等高線；碗的形狀固定，縮圈時只是外圍的平台被「吃掉」（蓋上深色環）
       this.pit = this.add.circle(AX, AY, ARENA_R + 70, 0x0a1017).setDepth(0);
-      const g = this.add.graphics();
-      g.fillStyle(0x2d4256).fillCircle(0, 0, ARENA_R);
-      g.lineStyle(3, 0x3d5a78, 0.9);
-      for (const k of [0.25, 0.5, 0.75]) g.strokeCircle(0, 0, ARENA_R * k);
-      g.lineStyle(2, 0x3d5a78, 0.5);
-      for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; g.lineBetween(Math.cos(a) * 20, Math.sin(a) * 20, Math.cos(a) * ARENA_R, Math.sin(a) * ARENA_R); }
-      this.platform = this.add.container(AX, AY, [g]).setDepth(1);
+      // 碗只畫一次、存成貼圖（每格重畫 28 個大圓太吃效能），之後每格只貼一張圖
+      if (!this.textures.exists('spinner-bowl')) {
+        const g = this.add.graphics(), C = ARENA_R;                  // 貼圖是 2R x 2R，圓心在 (R, R)
+        const STEPS = 28, dark = Phaser.Display.Color.ValueToColor(0x16222f), light = Phaser.Display.Color.ValueToColor(0x6a8cae);
+        for (let i = 0; i < STEPS; i++) {
+          const t = 1 - i / STEPS;                                   // 1 = 最外圈，0 = 中心
+          const c = Phaser.Display.Color.Interpolate.ColorWithColor(dark, light, 100, Math.pow(t, 1.3) * 100);
+          g.fillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b)).fillCircle(C, C, ARENA_R * t);
+        }
+        g.lineStyle(2, 0x9bb6d1, 0.25);
+        for (const k of [0.25, 0.5, 0.75]) g.strokeCircle(C, C, ARENA_R * k);
+        g.lineStyle(2, 0x9bb6d1, 0.12);
+        for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; g.lineBetween(C + Math.cos(a) * 20, C + Math.sin(a) * 20, C + Math.cos(a) * ARENA_R, C + Math.sin(a) * ARENA_R); }
+        g.generateTexture('spinner-bowl', ARENA_R * 2, ARENA_R * 2);
+        g.destroy();
+      }
+      this.platform = this.add.image(AX, AY, 'spinner-bowl').setDepth(1);
+      this.pitRing = this.add.graphics().setDepth(1.2);            // 縮圈時蓋住被「吃掉」的外圍
       this.rim = this.add.graphics().setDepth(2);
       // 文字：上方回合資訊、左邊擊殺榜、右邊訊息、中間大字
       const base = { fontSize: '30px', color: '#fff', fontStyle: 'bold', stroke: '#000', strokeThickness: 5 };
@@ -291,6 +341,7 @@ const SpinnerGame = (() => {
       this.subTextObj = this.add.text(AX, 80, '', { fontSize: '20px', color: '#fde68a', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(10);
       this.board = Array.from({ length: 7 }, (_, i) => this.add.text(24, 130 + i * 34, '', { fontSize: '22px', color: '#fff', stroke: '#000', strokeThickness: 4 }).setDepth(10));
       this.feedTexts = Array.from({ length: 5 }, (_, i) => this.add.text(1256, 130 + i * 30, '', { fontSize: '20px', color: '#fff', stroke: '#000', strokeThickness: 4 }).setOrigin(1, 0).setDepth(10));
+      this.prepText = this.add.text(AX, AY, '', { fontSize: '26px', color: '#fff', align: 'left', lineSpacing: 8, stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(4000);
       this.cdText = this.add.text(AX, AY - 10, '', { fontSize: '160px', color: '#fff', fontStyle: 'bold', stroke: '#000', strokeThickness: 12 }).setOrigin(0.5).setDepth(5000);
     }
 
@@ -338,9 +389,9 @@ const SpinnerGame = (() => {
         this.burst(f.x, f.y, 600, { speed: { min: 40, max: 160 }, scale: { start: 1, end: 0 }, gravityY: 200, tint: [0x93c5fd, 0xffffff] }, 14);
       }
 
-      // 平台（縮圈時縮小）+ 邊框（越縮越紅）
-      const k = arenaR / ARENA_R;
-      this.platform.setScale(k);
+      // 縮圈：外圍被吃掉的部分蓋上深色環；邊框（越縮越紅）
+      this.pitRing.clear();
+      if (arenaR < ARENA_R - 0.5) this.pitRing.lineStyle(ARENA_R + 4 - arenaR, 0x0a1017).strokeCircle(AX, AY, (arenaR + ARENA_R + 4) / 2);
       const danger = round === 2 ? Math.min(1, (ARENA_R - arenaR) / (ARENA_R * (1 - SHRINK_MIN_RATIO))) : 0;
       this.rim.clear().lineStyle(10, Phaser.Display.Color.GetColor(Math.round(174 + 70 * danger), Math.round(195 - 100 * danger), Math.round(216 - 130 * danger))).strokeCircle(AX, AY, arenaR + 3);
 
@@ -362,7 +413,7 @@ const SpinnerGame = (() => {
 
       // 上方標題、擊殺榜、訊息、中間大字
       const sec = Math.ceil(remainingMs / 1000);
-      this.titleText.setText(round === 1 ? `第 1 回合　${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}` : `第 2 回合　剩 ${aliveCount()} 人（目標 ${finalistTarget()} 人）`);
+      this.titleText.setText(Hub.phase === 'prepare' ? '陀螺大戰　準備中' : round === 1 ? `第 1 回合　${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}` : `第 2 回合　剩 ${aliveCount()} 人（目標 ${finalistTarget()} 人）`);
       this.subTextObj.setText(subText);
       const rows = [...discs].sort((a, b) => totalKills(b.p) - totalKills(a.p)).slice(0, this.board.length);
       this.board.forEach((t, i) => {
@@ -372,7 +423,8 @@ const SpinnerGame = (() => {
       });
       feed = feed.filter((f) => now - f.at < 5000);
       this.feedTexts.forEach((t, i) => { const f = feed[feed.length - 1 - i]; t.setText(f ? f.text : '').setAlpha(f ? 1 - Math.max(0, (now - f.at - 3500) / 1500) : 0); });
-      this.cdText.setText(centerText);
+      this.cdText.setText(Hub.phase === 'prepare' ? '' : centerText);
+      this.prepText.setText(Hub.phase === 'prepare' ? prepareLines() : '').setVisible(Hub.phase === 'prepare');
     }
   }
 
@@ -390,7 +442,7 @@ const SpinnerGame = (() => {
     elimOrder = []; hitEvents = []; fallEvents = []; allOfflineSince = 0;
     Hub.game.scene.stop('spinner');
     Hub.game.scene.start('spinner');
-    beginRound(1);
+    beginPrepare();
   }
 
   function stop() {
@@ -423,8 +475,10 @@ const SpinnerGame = (() => {
       const p = players.get(playerId);
       if (!p || !discOf(p) || typeof data.mx !== 'number') return;
       S(p).input = { mx: data.mx, my: data.my, at: Date.now() };
+      if (data.mode === 'gyro' || data.mode === 'stick') C(p).mode = data.mode;
+      if (data.ready && !C(p).ready) { C(p).ready = true; sendStatus(p); checkAllReady(); }
     },
-    onPlayerLeft(p) { if (p.spinner) p.spinner.input = { mx: 0, my: 0, at: 0 }; checkAllOffline(); },
+    onPlayerLeft(p) { if (p.spinner) p.spinner.input = { mx: 0, my: 0, at: 0 }; checkAllOffline(); checkAllReady(); },
     onPlayerJoin() { checkAllOffline(); },
     onPhase(phase) {
       $('spinnerPanel').classList.toggle('hidden', phase !== 'roundEnd' && phase !== 'result');
@@ -438,7 +492,7 @@ const SpinnerGame = (() => {
         role: 'player', round, kills: totalKills(p), deaths: st.deaths,
         alive: d.alive || d.falling, eliminated: st.eliminated,
         respawnMs: round === 1 && !d.alive && !d.falling && d.respawnAt ? Math.max(0, d.respawnAt - Date.now()) : 0,
-        roundRank: st.roundRank, finalRank: st.finalRank,
+        roundRank: st.roundRank, finalRank: st.finalRank, ready: C(p).ready, mode: C(p).mode,
       };
     },
     stateExtra: () => ({ round }),

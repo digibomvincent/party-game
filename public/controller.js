@@ -203,16 +203,20 @@ $('pickBack').onclick = () => { pickStep = 'char'; pickMsg = ''; renderPick(); }
 $('repickBtn').onclick = () => { repicking = true; pickStep = 'char'; pickMsg = ''; render(); };
 
 // ---------- 依狀態更新畫面 ----------
-// enabled：false = 一顆鎖住的大按鈕（等待、結果）；true = 跑步的左右兩顆；'stick' = 足球的搖桿
+// enabled：false = 一顆鎖住的大按鈕（等待、結果）；true = 跑步的左右兩顆；'stick' = 搖桿；
+//          'ready' = 陀螺大戰的「準備好」；'gyro' = 陀螺大戰的傾斜操控畫面
 function setScreen(msg, btnText, enabled, color) {
   $('msg').innerHTML = `<div>${msg}</div>`;
   $('pad').classList.toggle('hidden', enabled !== true);
   $('soccerPad').classList.toggle('hidden', enabled !== 'stick');
+  $('readyPad').classList.toggle('hidden', enabled !== 'ready');
+  $('gyroPad').classList.toggle('hidden', enabled !== 'gyro');
+  updateGyroTimer(enabled === 'gyro');
   $('bigBtn').classList.toggle('hidden', !!enabled);
   if (enabled !== 'stick') releaseAll();
   $('bigBtn').textContent = btnText;
   $('bigBtn').disabled = true;
-  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('stickKnob'), $('btnNeck'), $('btnDash')]) el.style.setProperty('--c', color);
+  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('stickKnob'), $('btnNeck'), $('btnDash'), $('btnReadyGyro'), $('tiltBubble')]) el.style.setProperty('--c', color);
   if (!enabled) { lastSide = null; updateNext(); }
 }
 
@@ -262,7 +266,7 @@ function render() {
     setScreen(`${board}<br>你是 ${team}　<small>${hint}</small>`, '', 'stick', color); return;
   }
   $('soccerPad').classList.toggle('solo', gameState.game === 'spinner');
-  if (gameState.game === 'spinner') {  // 陀螺大戰：整塊畫面是搖桿（S1 會改成傾斜手機）
+  if (gameState.game === 'spinner') {  // 陀螺大戰：傾斜手機（陀螺儀）或搖桿
     const rd = me.round || gameState.round || 1;
     const head = `第 ${rd} 回合　<b>${me.kills || 0}</b> 殺`;
     if (phase === 'result') {
@@ -277,8 +281,16 @@ function render() {
       startRespawnTicker(me.respawnMs);
       setScreen(`被撞出去了！<br><small>${head}</small>`, '重生中…', false, color); return;
     }
+    // 還沒選操控方式、或體感被重新整理掉了（iPhone 每次重整都要重新授權）：先回到「準備好」
+    const needEnable = !ctrlMode || (ctrlMode === 'gyro' && !gyro.active);
+    if (phase === 'prepare' && me.ready && !needEnable) {
+      setScreen(`✅ 準備好了<br><small>${ctrlMode === 'gyro' ? '📱 體感操控' : '🕹 搖桿操控'}　等其他人…</small>${gyroNote ? `<br><small>${gyroNote}</small>` : ''}`, '等待中', false, color); return;
+    }
+    if (needEnable) {
+      setScreen(`${phase === 'prepare' ? '準備好了嗎？' : '點一下啟用體感'}<br><small>按下「準備好」會請你允許「動作與方向」。<br>把手機拿成你習慣的姿勢，按下的那一刻就是「水平」</small>`, '', 'ready', color); return;
+    }
     const hint = phase === 'countdown' ? '預備…' : rd === 1 ? '把別人撞出平台，被撞出去 5 秒後復活' : '最後留下來的人獲勝，不會復活！';
-    setScreen(`${head}<br><small>${hint}</small>`, '', 'stick', color); return;
+    setScreen(`${head}<br><small>${hint}${gyroNote ? '<br>' + gyroNote : ''}</small>`, '', ctrlMode === 'gyro' ? 'gyro' : 'stick', color); return;
   }
   if (phase === 'result') {            // 全部跑完：顯示總名次
     setScreen(me.finished ? `全部結束！你的總名次` + time : '全部結束！你沒跑完',
@@ -424,6 +436,108 @@ for (const [key, id, buzz] of [['neck', 'btnNeck', [15]], ['dash', 'btnDash', [2
 }
 // 分頁被切走時，搖桿與按鈕一定要放開，不然角色會一直跑或一直蓄力
 document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') releaseAll(); });
+
+// ---------- 陀螺大戰：陀螺儀（傾斜手機）操控 ----------
+// 原理：用 deviceorientation 的 beta（上緣抬起／壓下）與 gamma（右緣壓下／抬起）的「角度變化」：
+//       現在的角度 - 「校正」時的角度，除以滿傾斜角，得到 -1~1 的方向向量，格式和搖桿一樣（mx, my），所以 host 不用知道是哪一種操控。
+//       往哪邊傾斜，圓盤就往哪邊滾（像在手機上放一顆珠子）。
+const TILT_FULL_DEG = 25;      // 傾斜到這個角度（相對校正姿勢）就是推到底
+const TILT_DEAD = 0.1;         // 死區：傾斜太小當作沒傾斜（0~1）
+const GYRO_SMOOTH = 0.35;      // 平滑（越大越跟手、越小越穩）
+const GYRO_SEND_MS = 33;       // 最多每 33ms（30Hz）送一次
+let ctrlMode = '';             // 'gyro' | 'stick' | ''（還沒選）
+try { ctrlMode = localStorage.getItem('party-race-mode') || ''; } catch (e) { /* 略過 */ }
+let gyroNote = '';             // 啟用失敗時要顯示的提示
+const gyro = { active: false, listening: false, raw: { beta: 0, gamma: 0 }, neutral: { beta: 0, gamma: 0 }, hasNeutral: false, vec: { mx: 0, my: 0 }, sentAt: 0 };
+let gyroTimer = null;
+
+function setCtrlMode(m) { ctrlMode = m; try { localStorage.setItem('party-race-mode', m); } catch (e) { /* 略過 */ } }
+
+const wrap180 = (d) => ((((d + 180) % 360) + 360) % 360) - 180;       // 角度差換成 -180~180，避免跨過 ±180 時跳一大格
+// 把「現在 - 校正姿勢」的角度差轉成 -1~1 的向量（含螢幕轉向、死區）；mx 往右為正、my 往下為正（和 host 畫面一致）
+function tiltVector(raw, neutral, angle) {
+  const dBeta = wrap180(raw.beta - neutral.beta), dGamma = wrap180(raw.gamma - neutral.gamma);
+  const dx = dGamma, dy = -dBeta;                                      // 裝置座標：x 往右、y 往上（下坡方向）
+  let sx, sy;                                                          // 換成螢幕座標（橫放時螢幕轉了 angle 度）
+  switch (((angle % 360) + 360) % 360) {
+    case 90: sx = -dy; sy = dx; break;
+    case 180: sx = -dx; sy = -dy; break;
+    case 270: sx = dy; sy = -dx; break;
+    default: sx = dx; sy = dy;
+  }
+  let mx = sx / TILT_FULL_DEG, my = -sy / TILT_FULL_DEG;
+  const mag = Math.hypot(mx, my);
+  if (mag > 1) { mx /= mag; my /= mag; }
+  const m = Math.min(1, mag);
+  if (m < TILT_DEAD) return { mx: 0, my: 0 };
+  const scale = (m - TILT_DEAD) / (1 - TILT_DEAD) / m;                 // 死區以外重新拉伸到 0~1
+  return { mx: mx * scale, my: my * scale };
+}
+
+function onOrientation(e) {
+  if (e.beta == null || e.gamma == null) return;                       // 桌機瀏覽器沒有感測器時會送空值
+  const angle = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+  gyro.active = true;
+  gyro.raw = { beta: e.beta, gamma: e.gamma };
+  if (!gyro.hasNeutral) { gyro.neutral = { ...gyro.raw }; gyro.hasNeutral = true; }
+  const t = tiltVector(gyro.raw, gyro.neutral, angle);
+  gyro.vec = { mx: gyro.vec.mx + (t.mx - gyro.vec.mx) * GYRO_SMOOTH, my: gyro.vec.my + (t.my - gyro.vec.my) * GYRO_SMOOTH };
+  if (Math.hypot(gyro.vec.mx, gyro.vec.my) < 0.02) gyro.vec = { mx: 0, my: 0 };
+  // 傾斜指示：泡泡往傾斜的方向移動
+  const R = $('tiltRing').clientWidth * 0.39;
+  $('tiltBubble').style.transform = `translate(calc(-50% + ${gyro.vec.mx * R}px), calc(-50% + ${gyro.vec.my * R}px))`;
+  if (ctrlMode === 'gyro' && $('gyroPad') && !$('gyroPad').classList.contains('hidden') && performance.now() - gyro.sentAt >= GYRO_SEND_MS) sendGyro();
+}
+function sendGyro() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  socket.emit('input', { mx: r2(gyro.vec.mx), my: r2(gyro.vec.my), mode: 'gyro' });
+  gyro.sentAt = performance.now();
+}
+// 傾斜畫面顯示時，就算手機放著不動也定期重送（host 超過 0.6 秒沒收到會當作回正）
+function updateGyroTimer(on) {
+  if (on && !gyroTimer) gyroTimer = setInterval(() => { if (ctrlMode === 'gyro') sendGyro(); }, 150);
+  if (!on && gyroTimer) { clearInterval(gyroTimer); gyroTimer = null; }
+}
+function calibrate() {                                                  // 把現在的姿勢當作水平
+  gyro.neutral = { ...gyro.raw }; gyro.hasNeutral = true; gyro.vec = { mx: 0, my: 0 };
+  vibrate([20]);
+}
+
+// 請求陀螺儀：iPhone 要在「點擊」裡呼叫 requestPermission；其他手機直接聽事件。回傳 { ok, reason }
+async function enableGyro() {
+  if (!window.isSecureContext) return { ok: false, reason: 'insecure' };       // 只有 https（或 localhost）才給用感測器
+  if (typeof DeviceOrientationEvent === 'undefined') return { ok: false, reason: 'unsupported' };
+  if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try { if ((await DeviceOrientationEvent.requestPermission()) !== 'granted') return { ok: false, reason: 'denied' }; }
+    catch (err) { return { ok: false, reason: 'denied' }; }
+  }
+  if (!gyro.listening) { window.addEventListener('deviceorientation', onOrientation); gyro.listening = true; }
+  const got = await new Promise((resolve) => {                                  // 等第一筆有效資料；1.5 秒都沒有就當作這支手機沒有感測器
+    let waited = 0;
+    const iv = setInterval(() => {
+      if (gyro.active) { clearInterval(iv); resolve(true); }
+      else if ((waited += 100) >= 1500) { clearInterval(iv); resolve(false); }
+    }, 100);
+  });
+  return got ? { ok: true } : { ok: false, reason: 'nodata' };
+}
+const GYRO_FAIL_NOTE = {
+  insecure: '這個網址不是 https，手機不允許使用體感，已改用搖桿（請用 https 網址開）',
+  unsupported: '這個瀏覽器不支援體感，已改用搖桿',
+  denied: '你沒有允許「動作與方向」，已改用搖桿（iPhone 要到 Safari 的網站設定重設）',
+  nodata: '偵測不到這支手機的陀螺儀，已改用搖桿',
+};
+function sendReady() { socket.emit('input', { mx: 0, my: 0, ready: true, mode: ctrlMode }); }
+
+$('btnReadyGyro').addEventListener('click', async () => {
+  const r = await enableGyro();               // 這一行在使用者點擊的事件裡，iPhone 才肯跳授權視窗
+  if (r.ok) { calibrate(); setCtrlMode('gyro'); gyroNote = ''; }
+  else { setCtrlMode('stick'); gyroNote = GYRO_FAIL_NOTE[r.reason] || ''; }
+  sendReady(); render();
+});
+$('btnReadyStick').addEventListener('click', () => { setCtrlMode('stick'); gyroNote = ''; sendReady(); render(); });
+$('btnCalib').addEventListener('click', calibrate);
+$('btnToStick').addEventListener('click', () => { setCtrlMode('stick'); gyroNote = ''; socket.emit('input', { mx: 0, my: 0, mode: 'stick' }); render(); });
 
 // ---------- Wake Lock：讓螢幕不要暗掉（不支援就略過）----------
 let wakeLock = null;

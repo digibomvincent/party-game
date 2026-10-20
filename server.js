@@ -118,7 +118,7 @@ io.on('connection', (socket) => {
   });
 
   // ---------- 手機的持續輸入（足球的搖桿與按鈕）→ 轉給 host ----------
-  //   mx, my：搖桿方向 -1~1；dash、neck：按鈕是否按住
+  //   mx, my：搖桿／傾斜方向 -1~1；dash、neck：按鈕是否按住；ready、mode：陀螺大戰的「準備好」與操控方式（gyro 體感 / stick 搖桿）
   socket.on('input', (data) => {
     if (socket.data?.role !== 'player' || !allow('input')) return;
     const room = rooms.get(socket.data.room);
@@ -127,6 +127,7 @@ io.on('connection', (socket) => {
     io.to(room.hostId).emit('input', {
       playerId: socket.data.playerId,
       mx: num(data?.mx), my: num(data?.my), dash: !!data?.dash, neck: !!data?.neck,
+      ready: !!data?.ready, mode: data?.mode === 'gyro' || data?.mode === 'stick' ? data.mode : '',   // 陀螺大戰：準備好了嗎、操控方式
     });
   });
 

@@ -49,6 +49,12 @@ function fakePlayer(i) {
     }
   }, 60 + i * 15));
 
+  // 陀螺大戰的準備階段：假人直接按「準備好」（用搖桿模式，不需要陀螺儀）
+  timers.push(setInterval(() => {
+    if (!socket || !socket.connected || state.game !== 'spinner' || state.phase !== 'prepare') return;
+    if (status && status.role === 'player' && !status.ready) socket.emit('input', { mx: 0, my: 0, ready: true, mode: 'stick' });
+  }, 300));
+
   // 足球／陀螺大戰：每 100ms 送一次整組輸入（像真的手機一樣有保活）
   timers.push(setInterval(() => {
     if (!socket || !socket.connected || (state.game !== 'soccer' && state.game !== 'spinner')) return;

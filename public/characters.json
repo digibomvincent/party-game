@@ -8,15 +8,21 @@
     },
     {
       "id": "c2",
-      "name": "小酷"
+      "name": "12",
+      "art": "img/12.jpg",
+      "head": "img/12_head.png"
     },
     {
       "id": "c3",
-      "name": "小貓"
+      "name": "14",
+      "art": "img/14.jpg",
+      "head": "img/14_head.png"
     },
     {
       "id": "c4",
-      "name": "小熊"
+      "name": "18",
+      "art": "img/18.jpg",
+      "head": "img/18_head.png"
     }
   ],
   "colors": [

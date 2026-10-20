@@ -2,25 +2,25 @@
   "characters": [
     {
       "id": "c1",
-      "name": "07",
+      "name": "史瑞獸",
       "art": "img/07.jpg",
       "head": "img/07_head.png"
     },
     {
       "id": "c2",
-      "name": "12",
+      "name": "皮哥",
       "art": "img/12.jpg",
       "head": "img/12_head.png"
     },
     {
       "id": "c3",
-      "name": "14",
+      "name": "小肥",
       "art": "img/14.jpg",
       "head": "img/14_head.png"
     },
     {
       "id": "c4",
-      "name": "18",
+      "name": "棒打江豬",
       "art": "img/18.jpg",
       "head": "img/18_head.png"
     }

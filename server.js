@@ -127,7 +127,7 @@ io.on('connection', (socket) => {
     const num = (v) => Math.max(-1, Math.min(1, Number(v) || 0));
     io.to(room.hostId).emit('input', {
       playerId: socket.data.playerId,
-      mx: num(data?.mx), my: num(data?.my), dash: !!data?.dash, neck: !!data?.neck,
+      mx: num(data?.mx), my: num(data?.my), dash: !!data?.dash, neck: !!data?.neck, ult: !!data?.ult,
       ax: num(data?.ax), ay: num(data?.ay),   // 足球：右手「頭槌」區域滑動的方向（瞄準）
       ready: !!data?.ready, mode: data?.mode === 'gyro' || data?.mode === 'stick' ? data.mode : '',   // 陀螺大戰：準備好了嗎、操控方式
     });

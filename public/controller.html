@@ -82,6 +82,13 @@
     #aimKnob { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; border-radius: 50%; background: #fff; transform: translate(-50%, -50%); }
     #btnNeck.pressed { filter: brightness(1.25); }
     #soccerPad.solo #btnNeck { display: none; }              /* 陀螺大戰只有「衝撞」鈕（共用衝刺那顆） */
+    #soccerPad.solo #btnUlt { display: none; }
+    #actions #btnUlt { flex: 1; font-size: 28px; background: linear-gradient(135deg, #f59e0b, #dc2626); }
+    #actions #btnUlt[data-state="ready"] { filter: saturate(.5) brightness(.7); }
+    #actions #btnUlt[data-state="used"] { filter: grayscale(1) brightness(.45); }
+    #actions #btnUlt[data-state="near"] { animation: ultPulse .7s infinite; }
+    #actions #btnUlt[data-state="aim"] { filter: brightness(1.3); }
+    @keyframes ultPulse { 50% { box-shadow: 0 0 0 8px rgba(251, 191, 36, .7); transform: scale(1.03); } }
     #actions button.cooling { filter: grayscale(.8) brightness(.6); }
     /* 陀螺大戰：準備（請求體感授權）與傾斜操控畫面 */
     #readyPad { flex: 1; display: flex; flex-direction: column; gap: 14px; margin: 0 16px 24px; justify-content: center; }
@@ -150,6 +157,7 @@
           <div id="aimBase" class="hidden"><div id="aimKnob"></div></div>
         </div>
         <button id="btnDash">衝刺</button>
+        <button id="btnUlt" data-state="ready">必殺技<small>球在身邊才能用</small></button>
       </div>
     </div>
     <div id="readyPad" class="hidden">

@@ -5,6 +5,14 @@ const AI = (() => {
   const NAMES = ['阿財', '小美', '大雄', '胖虎', '靜香', '技安', '小夫', '哆啦', '路飛', '索隆', '娜美', '喬巴'];
   const MAX_PLAYERS = 12;
   let seq = 0;
+  // 難度：tap 跑步每下間隔(ms)；mis 手滑機率；jit 方向誤差倍率；neckP 頭槌機率倍率；think 足球／陀螺幾 ms 決定一次；ramP 衝撞機率；dash 會不會衝刺；ult 使用必殺技的機率
+  const LEVELS = {
+    easy:   { name: '簡單', tap: [270, 390], mis: 0.09, jit: 2.0, neckP: 0.3, think: 220, ramP: 0.1, dash: false, ult: 0.25 },
+    normal: { name: '普通', tap: [200, 290], mis: 0.05, jit: 1.2, neckP: 0.45, think: 130, ramP: 0.25, dash: true, ult: 0.6 },
+    hard:   { name: '困難', tap: [150, 230], mis: 0.03, jit: 0.7, neckP: 0.6, think: 60, ramP: 0.4, dash: true, ult: 1 },
+  };
+  let level = 'easy';
+  const lv = () => LEVELS[level];
 
   const isAI = (p) => !!p.ai;
   const list = () => [...Hub.players.values()].filter(isAI);
@@ -18,7 +26,7 @@ const AI = (() => {
     const taken = new Set([...Hub.players.values()].map((p) => p.name));
     const name = 'AI·' + (NAMES.find((n) => !taken.has('AI·' + n)) || ('機器人' + seq));
     const ch = Hub.characters[Math.floor(Math.random() * Hub.characters.length)];
-    const p = { id, name, online: true, charId: ch.id, color, photo: '', ai: { skill: 0.75 + Math.random() * 0.35, side: 'L', nextTap: 0, neckUntil: 0, nextNeck: 0, ramAt: 0, dashAt: 0, pulse: false } };
+    const p = { id, name, online: true, charId: ch.id, color, photo: '', ai: { skill: 0.85 + Math.random() * 0.2, useUlt: Math.random() < lv().ult, side: 'L', nextTap: 0, neckUntil: 0, nextNeck: 0, ramAt: 0, dashAt: 0, pulse: false } };
     Hub.players.set(id, p);
     Hub.broadcastState();
     renderLobby();
@@ -41,23 +49,28 @@ const AI = (() => {
     const g = Hub.currentGame, st = g.statusOf(p), a = p.ai;
     if (Hub.phase !== 'racing' || !st || st.role !== 'racer' || st.heat !== g.stateExtra().heat || st.finished) return;
     if (now < a.nextTap) return;
-    a.nextTap = now + (150 + Math.random() * 90) / a.skill;                        // 差不多一秒 4~6 下
+    const L = lv();
+    a.nextTap = now + (L.tap[0] + Math.random() * (L.tap[1] - L.tap[0])) / a.skill;
     let side = a.side === 'L' ? 'R' : 'L';
     const r = Math.random();
-    if (r < 0.03) side = a.side;                                                   // 手滑連按同一邊
-    else if (r < 0.04) side = 'both';                                              // 兩邊一起按而跌倒
+    if (r < L.mis * 0.75) side = a.side;                                           // 手滑連按同一邊
+    else if (r < L.mis) side = 'both';                                              // 兩邊一起按而跌倒
     a.side = side === 'both' ? a.side : side;
     g.onInput(p.id, { side });
   }
 
   // ---------- 足球 ----------
   function soccerTick(p, now, S) {
-    const g = Hub.currentGame, a = p.ai;
-    const send = (o) => g.onInput(p.id, { mx: 0, my: 0, dash: false, neck: false, ax: 0, ay: 0, ...o });
+    const g = Hub.currentGame, a = p.ai, L = lv();
+    const send = (o) => g.onInput(p.id, { mx: 0, my: 0, dash: false, neck: false, ax: 0, ay: 0, ult: false, ...o });
     if (S.phase !== 'playing') { send({}); return; }
     const me = S.field.find((f) => f.id === p.id);
     if (!me) return;
     const dir = me.team === 0 ? 1 : -1;
+    if (S.ult) {                                                                   // 有人在放必殺技：自己放的就瞄準球門，別人放的就站著等
+      if (S.ult.id === p.id && S.ult.phase === 'aim') { const gl = unit((me.team === 0 ? 1208 : 72) - S.ball.x, 400 - S.ball.y); send({ mx: gl.x, my: gl.y }); } else send({});
+      return;
+    }
     const goal = { x: me.team === 0 ? 1208 : 72, y: 400 }, own = { x: me.team === 0 ? 72 : 1208, y: 400 };
     const ball = S.ball;
     const mates = S.field.filter((f) => f.team === me.team);
@@ -73,14 +86,15 @@ const AI = (() => {
       const aligned = lined.x * toGoal.x + lined.y * toGoal.y > 0.55;
       let move;
       if (dBall < 100 && aligned) move = lined; else move = unit(behind.x - me.x, behind.y - me.y);
-      move = jitter(move, 0.25 / a.skill);
+      move = jitter(move, 0.25 * L.jit / a.skill);
+      if (a.useUlt && !me.ultUsed && dBall < 110 && Math.abs(goal.x - ball.x) < 650) { a.useUlt = false; send({ mx: move.x, my: move.y, ult: true }); return; }   // 球在身邊、離對方球門不遠 → 放必殺技
       let neck = now < a.neckUntil, ax = 0, ay = 0;
-      if (!neck && dBall < 105 && aligned && now > a.nextNeck && Math.random() < 0.5 * a.skill) {
+      if (!neck && dBall < 105 && aligned && now > a.nextNeck && Math.random() < L.neckP * a.skill) {
         a.neckUntil = now + 220 + Math.random() * 300; a.nextNeck = a.neckUntil + 600 + Math.random() * 500; neck = true;
       }
-      if (neck) { const aim = jitter(toGoal, 0.12 / a.skill); ax = aim.x * 0.95; ay = aim.y * 0.95; }
+      if (neck) { const aim = jitter(toGoal, 0.12 * L.jit / a.skill); ax = aim.x * 0.95; ay = aim.y * 0.95; }
       let dash = false;
-      if (dBall > 280 && now > a.dashAt && Math.random() < 0.3) { dash = true; a.dashAt = now + 2200 + Math.random() * 2000; }
+      if (L.dash && dBall > 280 && now > a.dashAt && Math.random() < 0.3) { dash = true; a.dashAt = now + 2200 + Math.random() * 2000; }
       send({ mx: move.x * 0.95, my: move.y * 0.95, neck, ax, ay, dash });
       return;
     }
@@ -100,7 +114,7 @@ const AI = (() => {
 
   // ---------- 陀螺大戰 ----------
   function spinnerTick(p, now, S) {
-    const g = Hub.currentGame, a = p.ai;
+    const g = Hub.currentGame, a = p.ai, L = lv();
     const send = (o) => g.onInput(p.id, { mx: 0, my: 0, dash: false, ...o });
     if (Hub.phase === 'prepare') { const st = g.statusOf(p); if (st && st.role === 'player' && !st.ready) send({ ready: true, mode: 'stick' }); return; }
     if (Hub.phase !== 'playing') { send({}); return; }
@@ -116,8 +130,8 @@ const AI = (() => {
       let best = null, bs = Infinity;
       for (const f of foes) { const sc = Math.hypot(f.x - me.x, f.y - me.y) - 0.6 * Math.hypot(f.x - 640, f.y - 390); if (sc < bs) { bs = sc; best = f; } }
       const dx = best.x + best.vx * 0.15 - me.x, dy = best.y + best.vy * 0.15 - me.y, d = Math.hypot(dx, dy);
-      want = jitter(unit(dx, dy), 0.5 / a.skill);
-      if (d < 150 && r < R * 0.6 && now > a.ramAt && Math.random() < 0.35 * a.skill) { dash = true; a.ramAt = now + 2400 + Math.random() * 1500; }
+      want = jitter(unit(dx, dy), 0.5 * L.jit / a.skill);
+      if (d < 150 && r < R * 0.6 && now > a.ramAt && Math.random() < L.ramP * a.skill) { dash = true; a.ramAt = now + 2400 + Math.random() * 1500; }
     }
     send({ mx: want.x * 0.9, my: want.y * 0.9, dash });
   }
@@ -128,7 +142,7 @@ const AI = (() => {
     const ais = list();
     if (!ais.length || !Hub.currentGame) return;
     const now = Date.now(), id = Hub.currentGameId;
-    const throttle = id === 'race' ? 0 : 60;                                       // 足球／陀螺最多每 60ms 決定一次
+    const throttle = id === 'race' ? 0 : lv().think;                               // 足球／陀螺多久決定一次（越久越遲鈍）
     if (now - last < throttle) return;
     last = now;
     try {
@@ -143,6 +157,6 @@ const AI = (() => {
     } catch (e) { console.error('AI error', e); }
   }, 40);
 
-  return { add, remove, list, isAI };
+  return { add, remove, list, isAI, LEVELS, setLevel: (l) => { if (LEVELS[l]) level = l; }, getLevel: () => level };
 })();
 Hub.AI = AI;

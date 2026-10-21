@@ -8,6 +8,18 @@ const $ = (id) => document.getElementById(id);
 
 // 防止 iPhone 雙擊／雙指放大（Safari 不理 user-scalable=no），放大後就縮不回來
 document.addEventListener('gesturestart', (e) => e.preventDefault());
+document.addEventListener('dblclick', (e) => e.preventDefault());
+// 萬一還是被放大了（visualViewport 縮放比例 > 1），重設 viewport 讓它回到 1 倍
+{
+  const meta = document.querySelector('meta[name=viewport]');
+  const fixed = meta ? meta.content : '';
+  const reset = () => {
+    if (!meta || !window.visualViewport || window.visualViewport.scale <= 1.02) return;
+    meta.content = 'width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1';
+    setTimeout(() => { meta.content = fixed; }, 60);
+  };
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', reset);
+}
 document.addEventListener('gesturechange', (e) => e.preventDefault());
 let lastTouchEnd = 0;
 document.addEventListener('touchend', (e) => {
@@ -241,6 +253,7 @@ function setScreen(msg, btnText, enabled, color) {
   updateGyroTimer(enabled === 'gyro');
   $('bigBtn').classList.toggle('hidden', !!enabled);
   if (enabled !== 'stick') releaseAll();
+  document.documentElement.style.touchAction = enabled ? 'none' : 'manipulation';       // 遊戲畫面整頁都不能縮放或捲動
   $('bigBtn').textContent = btnText;
   $('bigBtn').disabled = true;
   if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('stickKnob'), $('btnNeck'), $('btnDash'), $('btnRamGyro'), $('btnReadyGyro'), $('tiltBubble')].filter(Boolean)) el.style.setProperty('--c', color);
@@ -284,6 +297,11 @@ function render() {
   $('btnDash').textContent = gameState.game === 'spinner' ? '衝撞' : '衝刺';
   $('soccerPad').classList.toggle('solo', gameState.game === 'spinner');   // 陀螺大戰沒有頭槌／衝刺；足球有（換遊戲時要記得切回來）
   if (gameState.game === 'soccer') {   // 足球：整塊畫面是搖桿；比賽結束顯示勝負
+    const ultSt = me.ult || 'ready';
+    $('btnUlt').dataset.state = ultSt;
+    $('btnUlt').innerHTML = { used: '必殺技<small>已經用過了</small>', near: '必殺技<small>現在可以用！</small>', aim: '瞄準中…<small>拖動左邊搖桿</small>' }[ultSt] || '必殺技<small>球在身邊才能用</small>';
+    $('stickHint').style.color = ultSt === 'aim' ? '#fbbf24' : '';
+    $('stickHint').innerHTML = ultSt === 'aim' ? '🔥 必殺技！<br>拖動瞄準方向' : '按住這裡拖動<br>往想去的方向跑';
     const sc = gameState.score || [0, 0];
     const board = `<span style="color:#f87171">紅 ${sc[0]}</span> : <span style="color:#60a5fa">${sc[1]} 藍</span>`;
     const team = me.team ? `<b style="color:${me.team === 'red' ? '#f87171' : '#60a5fa'}">${me.teamName}</b>` : '';
@@ -385,17 +403,17 @@ const STICK_DEAD = 0.15;       // 死區：太小的移動當作沒動，避免�
 const STICK_SEND_MS = 50;      // 拖動時最多每 50ms 送一次
 const KEEPALIVE_MS = 150;      // 有東西按住時也定期重送整組輸入，host 才不會以為斷線
 let stick = null;              // 目前按著搖桿的手指 { id, x0, y0, mx, my }
-const held = { neck: false, dash: false, ax: 0, ay: 0 };   // 頭槌（含右手滑動的瞄準方向）、衝刺是否按著
+const held = { neck: false, dash: false, ult: false, ax: 0, ay: 0 };   // 頭槌（含右手滑動的瞄準方向）、衝刺是否按著
 let sentAt = 0, keepTimer = null;
 
 function sendInput() {
   const r2 = (v) => Math.round(v * 100) / 100;
-  socket.emit('input', { mx: r2(stick ? stick.mx : 0), my: r2(stick ? stick.my : 0), dash: held.dash, neck: held.neck, ax: r2(held.neck ? held.ax : 0), ay: r2(held.neck ? held.ay : 0) });
+  socket.emit('input', { mx: r2(stick ? stick.mx : 0), my: r2(stick ? stick.my : 0), dash: held.dash, neck: held.neck, ult: held.ult, ax: r2(held.neck ? held.ax : 0), ay: r2(held.neck ? held.ay : 0) });
   sentAt = performance.now();
 }
 // 有任何東西按著就定期重送；全部放開就停
 function updateKeepAlive() {
-  const active = !!stick || held.neck || held.dash;
+  const active = !!stick || held.neck || held.dash || held.ult;
   if (active && !keepTimer) keepTimer = setInterval(sendInput, KEEPALIVE_MS);
   if (!active && keepTimer) { clearInterval(keepTimer); keepTimer = null; }
 }
@@ -407,8 +425,8 @@ function releaseStick() {
   updateKeepAlive(); sendInput();
 }
 function releaseAll() {          // 離開足球畫面 / 分頁被切走：搖桿與按鈕全部放開並通知 host
-  const any = !!stick || held.neck || held.dash;
-  stick = null; held.neck = held.dash = false; held.ax = held.ay = 0;
+  const any = !!stick || held.neck || held.dash || held.ult;
+  stick = null; held.neck = held.dash = held.ult = false; held.ax = held.ay = 0;
   $('aimBase').classList.add('hidden');
   $('stickBase').classList.add('hidden'); $('stickHint').classList.remove('hidden');
   for (const id of ['btnNeck', 'btnDash']) $(id).classList.remove('pressed');
@@ -458,6 +476,18 @@ const RAM_COOLDOWN_MS = 2000;
     held.dash = true; btn.classList.add('pressed'); updateKeepAlive(); sendInput(); vibrate([25]);
   });
   const up = () => { if (!held.dash) return; held.dash = false; btn.classList.remove('pressed'); updateKeepAlive(); sendInput(); };
+  btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up);
+}
+
+// 必殺技（足球）：每人每場一次，球在身邊（按鈕會閃）時按下 → 全場暫停，用左邊搖桿瞄準 1 秒，球就以超快速度飛出去
+{
+  const btn = $('btnUlt');
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); btn.setPointerCapture(e.pointerId);
+    if (btn.dataset.state !== 'near') { vibrate([40, 40, 40]); return; }       // 還不能用：球不在身邊，或已經用過
+    held.ult = true; updateKeepAlive(); sendInput(); vibrate([60]);
+  });
+  const up = () => { if (!held.ult) return; held.ult = false; updateKeepAlive(); sendInput(); };
   btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up);
 }
 

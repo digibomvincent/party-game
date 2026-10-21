@@ -59,11 +59,18 @@ const SoccerGame = (() => {
   const DASH_SECONDS = 0.18;     // 衝刺持續多久
   const DASH_SPEED = 680;        // 衝刺速度
   const DASH_COOLDOWN = 1.2;     // 衝刺冷卻（秒）
+  // 必殺技：每人每場一次。球在身邊時發動 → 時間暫停、其他人變暗，出招者有 ULT_AIM_S 秒用搖桿瞄準，
+  // 然後球以超快速度飛 ULT_FLY_S 秒，期間穿過所有角色不會被擋（還是會被場邊彈回、會進球）
+  const ULT_RANGE = 150;         // 球離出招者這麼近才能發動
+  const ULT_AIM_S = 1.0;         // 瞄準時間
+  const ULT_FLY_S = 1.0;         // 必殺球飛行時間
+  const ULT_SPEED = 2400;        // 必殺球速度（像素/秒）
+  const ULT_ASSIST_DEG = 40;     // 瞄的方向和「球 → 對方球門中心」差在這個角度內，就自動修正成正對球門（讓必殺球穩定得分）
   const STEP = 1 / 60;           // 物理固定步長
 
   // ---------- 這個遊戲的狀態 ----------
   // 每位玩家的足球狀態放在 p.soccer（回大廳時清掉）：{ input, team, goals }
-  const S = (p) => p.soccer || (p.soccer = { input: { mx: 0, my: 0, ax: 0, ay: 0, dash: false, neck: false, at: 0 }, team: 0, goals: 0 });
+  const S = (p) => p.soccer || (p.soccer = { input: { mx: 0, my: 0, ax: 0, ay: 0, dash: false, neck: false, at: 0 }, team: 0, goals: 0, ultUsed: false });
   let field = [];                // 場上的角色（見 newFielder）
   // 場上角色：位置速度 + 頭槌／衝刺狀態
   function newFielder(p, team) {
@@ -79,6 +86,8 @@ const SoccerGame = (() => {
   let remainingMs = 0;           // 比賽剩餘時間
   let overtime = false;
   let centerText = '';           // 畫面正中間的大字（倒數、進球、加時）
+  let ult = null;                // 必殺技進行中：{ f, phase: 'aim' | 'fly', t, dir, snapped }
+  let ultEvent = { n: 0, kind: '', id: null };   // 必殺技事件（場景播特效、音效）
   let goalEvent = { n: 0, team: 0, scorerId: null };   // 進球事件（場景看到 n 變了就播慶祝）
   let kickEvent = { n: 0, x: 0, y: 0, power: 0 };       // 頭槌踢到球的事件（場景播特效）
   let dashEvent = { n: 0, id: null };                    // 衝刺事件
@@ -94,6 +103,7 @@ const SoccerGame = (() => {
   // ============================================================
   // 紅隊站左半場、藍隊站右半場，同隊的人在場上平均排開（離中圈遠一點）
   function resetKickoff() {
+    ult = null;
     ball = { x: CX, y: CY, vx: 0, vy: 0, rot: 0, last: null };
     for (const team of [0, 1]) {
       const mates = field.filter((f) => S(f.p).team === team);
@@ -113,13 +123,14 @@ const SoccerGame = (() => {
   // 物理
   // ============================================================
   // 瞄準輔助：球要飛的方向 dir 如果接近「球 → 對方球門中心」，就修正成正對球門中心
-  function assistDir(f, dir, from) {
-    if (!AIM_ASSIST_DEG) return { dir, snapped: false };
+  function assistDir(f, dir, from, maxDeg) {
+    const lim = maxDeg == null ? AIM_ASSIST_DEG : maxDeg;
+    if (!lim) return { dir, snapped: false };
     const team = S(f.p).team;
     const gx = team === 0 ? FIELD.r + GOAL_D / 2 : FIELD.l - GOAL_D / 2, gy = CY;       // 紅隊攻右邊球門、藍隊攻左邊
     const vx = gx - from.x, vy = gy - from.y, vl = Math.hypot(vx, vy) || 1, g = { x: vx / vl, y: vy / vl };
     const ang = Math.acos(Math.max(-1, Math.min(1, dir.x * g.x + dir.y * g.y))) * 180 / Math.PI;
-    return ang <= AIM_ASSIST_DEG ? { dir: g, snapped: true } : { dir, snapped: false };
+    return ang <= lim ? { dir: g, snapped: true } : { dir, snapped: false };
   }
   // 放開頭槌時，要往哪個方向打：右手有滑動就用滑動的方向，否則用目前的移動／面向方向（再套瞄準輔助）
   function kickDirection(f, dir) {
@@ -135,8 +146,54 @@ const SoccerGame = (() => {
     const u = (l.t - LUNGE_OUT - LUNGE_HOLD) / LUNGE_BACK;
     return Math.max(0, 1 - u * u);
   }
+  // ---------- 必殺技 ----------
+  const ultGoal = (f) => ({ x: S(f.p).team === 0 ? FIELD.r + GOAL_D / 2 : FIELD.l - GOAL_D / 2, y: CY });
+  function ultState(f) {                                   // 給手機看的狀態：ready 可以用但球還不在身邊、near 球在身邊（可以發動）、aim 瞄準中、used 已經用過
+    if (ult && ult.f === f) return 'aim';
+    if (S(f.p).ultUsed) return 'used';
+    return f.p.online && Math.hypot(ball.x - f.x, ball.y - f.y) <= ULT_RANGE ? 'near' : 'ready';
+  }
+  function startUlt(f) {
+    S(f.p).ultUsed = true;
+    const g = ultGoal(f), d = Math.hypot(g.x - ball.x, g.y - ball.y) || 1;
+    ult = { f, phase: 'aim', t: 0, dir: { x: (g.x - ball.x) / d, y: (g.y - ball.y) / d }, snapped: true };   // 沒瞄準時預設就是對準球門
+    for (const o of field) { o.vx = 0; o.vy = 0; o.charging = false; o.charge = 0; o.lunge = null; o.dashT = 0; }
+    ball.vx = 0; ball.vy = 0;
+    ultEvent = { n: ultEvent.n + 1, kind: 'start', id: f.p.id };
+    centerText = `🔥 ${f.p.name} 的必殺技！`;
+    sendStatus(f.p);
+  }
+  function tickUltAim(dt) {
+    const f = ult.f, inp = S(f.p).input;
+    const stale = Date.now() - inp.at > INPUT_TIMEOUT_MS;
+    const mag = stale ? 0 : Math.hypot(inp.mx, inp.my);
+    if (mag > 0.3) {                                        // 搖桿推的方向就是球要飛的方向；沒推就維持上一個方向
+      const dir = { x: inp.mx / mag, y: inp.my / mag }, a = assistDir(f, dir, ball, ULT_ASSIST_DEG);
+      ult.dir = a.dir; ult.snapped = a.snapped;
+    }
+    ult.t += dt;
+    if (ult.t >= ULT_AIM_S) {
+      ult.phase = 'fly'; ult.t = 0;
+      ball.vx = ult.dir.x * ULT_SPEED; ball.vy = ult.dir.y * ULT_SPEED; ball.last = f;
+      ultEvent = { n: ultEvent.n + 1, kind: 'fire', id: f.p.id };
+      centerText = '';
+    }
+  }
   function stepPhysics(dt) {
     const now = Date.now();
+    if (Hub.phase !== 'playing') ult = null;
+    // 必殺技：偵測發動（球在身邊、還沒用過、現在沒人在放）
+    for (const f of field) {
+      const inp = S(f.p).input;
+      if (!inp.ultReq) continue;
+      inp.ultReq = false;
+      if (!ult && Hub.phase === 'playing' && f.p.online && !S(f.p).ultUsed && Math.hypot(ball.x - f.x, ball.y - f.y) <= ULT_RANGE) startUlt(f);
+    }
+    if (ult && ult.phase === 'aim') { tickUltAim(dt); return; }      // 瞄準中：全場暫停（連比賽時間都停）
+    for (const f of field) {                                         // 手機上必殺鈕的狀態有變才通知
+      const st = ultState(f);
+      if (f.ultSt !== st) { f.ultSt = st; if (f.p.online) sendStatus(f.p); }
+    }
     // 角色：搖桿方向 → 目標速度；頭槌（蓄力→放開→脖子伸出去）；衝刺
     for (const f of field) {
       if (!f.p.online) { f.vx = 0; f.vy = 0; resetActions(f); continue; }   // 離線的人變成不會動、不會擋路的幽靈
@@ -219,13 +276,14 @@ const SoccerGame = (() => {
     }
     // 球：滾動、阻力、撞牆
     ball.x += ball.vx * dt; ball.y += ball.vy * dt;
-    const drag = Math.exp(-BALL_DRAG * dt);
+    const flying = ult && ult.phase === 'fly';                       // 必殺球飛行中：沒有阻力、不被任何角色擋住
+    const drag = flying ? 1 : Math.exp(-BALL_DRAG * dt);
     ball.vx *= drag; ball.vy *= drag;
     ball.rot += (ball.vx * dt) / BALL_R;
     collideBallWalls();
     // 球和角色：角色把球推開（把角色當作很重的東西），並記下最後碰球的人
     for (const f of field) {
-      if (!f.p.online) continue;
+      if (flying || !f.p.online) continue;
       const dx = ball.x - f.x, dy = ball.y - f.y, d = Math.hypot(dx, dy), min = PLAYER_R + BALL_R;
       if (d > 0 && d < min) {
         const nx = dx / d, ny = dy / d;
@@ -238,7 +296,7 @@ const SoccerGame = (() => {
     // 頭槌：脖子伸到最長的那一瞬間，頭碰到球就把球打出去（每次頭槌只會打一下）
     for (const f of field) {
       const l = f.lunge;
-      if (!l || l.hit || l.t > LUNGE_OUT + LUNGE_HOLD) continue;
+      if (flying || !l || l.hit || l.t > LUNGE_OUT + LUNGE_HOLD) continue;
       const reach = l.reach != null ? l.reach : NECK_MIN + (NECK_MAX - NECK_MIN) * l.power, e = lungeExt(l);
       const hx = f.x + l.dir.x * reach * e, hy = f.y + l.dir.y * reach * e;
       const dx = ball.x - hx, dy = ball.y - hy, d = Math.hypot(dx, dy), min = HEAD_R + BALL_R;
@@ -252,6 +310,16 @@ const SoccerGame = (() => {
       }
     }
     collideBallWalls();
+    if (flying) {
+      const sp = Math.hypot(ball.vx, ball.vy) || 1;                    // 撞牆彈回後速度還是維持超快
+      ball.vx *= ULT_SPEED / sp; ball.vy *= ULT_SPEED / sp;
+      ult.t += dt;
+      if (ult.t >= ULT_FLY_S) {
+        ult = null;
+        const k = Math.min(1, KICK_MAX / ULT_SPEED);                    // 恢復正常：減速成一般的最大球速
+        ball.vx *= k; ball.vy *= k;
+      }
+    }
     checkGoal();
     tickClock(dt);
   }
@@ -297,6 +365,7 @@ const SoccerGame = (() => {
   }
 
   function onGoal(team) {
+    ult = null;
     const f = ball.last;
     const own = f && S(f.p).team !== team;                    // 最後碰球的是對方 → 烏龍球
     score[team]++;
@@ -371,8 +440,10 @@ const SoccerGame = (() => {
       this.acc = 0;
       this.sprites = [];
       this.version = -1;
-      this.goalN = goalEvent.n; this.kickN = kickEvent.n; this.dashN = dashEvent.n;
+      this.goalN = goalEvent.n; this.kickN = kickEvent.n; this.dashN = dashEvent.n; this.ultN = ultEvent.n;
       this.drawField();
+      this.dim = this.add.rectangle(640, 360, 1280, 720, 0x000000, 1).setAlpha(0).setDepth(1000);      // 必殺技：除了出招者和球，全場變暗
+      this.ultG = this.add.graphics().setDepth(3600);                                      // 必殺技的瞄準線與倒數圈
       // 撒花用的小方塊貼圖（場景可能重複啟動，貼圖只建一次）
       if (!this.textures.exists('dot')) {
         const dot = this.textures.createCanvas('dot', 8, 8);
@@ -486,6 +557,15 @@ const SoccerGame = (() => {
       if (this.version !== version) this.rebuild();
       if (this.kickN !== kickEvent.n) { this.kickN = kickEvent.n; this.kickBurst(); Sfx.play('kick', { power: kickEvent.power }); }
       if (this.dashN !== dashEvent.n) { this.dashN = dashEvent.n; Sfx.play('dash'); }
+      if (this.ultN !== ultEvent.n) {
+        this.ultN = ultEvent.n;
+        if (ultEvent.kind === 'start') Sfx.play('ultStart');
+        else {
+          Sfx.play('ultFire');
+          this.cameras.main.shake(260, 0.012);
+          this.burst(ball.x, ball.y, 500, { speed: { min: 120, max: 520 }, scale: { start: 1.2, end: 0 }, tint: [0xffffff, 0xfacc15, 0xef4444] }, 28);
+        }
+      }
       if (this.goalN !== goalEvent.n) { this.goalN = goalEvent.n; this.celebrate(); }
       // 固定步長物理（只有比賽中才動；畫面卡頓時最多補 6 步）
       if (Hub.phase === 'playing') {
@@ -501,18 +581,33 @@ const SoccerGame = (() => {
       this.blueText.setText(`${score[1]} 藍隊`);
       this.timeText.setText(overtime ? `加時 ${sec}` : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
       this.noticeText.setText(notice);
-      this.cdText.setText(centerText).setFontSize(centerText.length > 4 ? 64 : 150);
+      this.cdText.setText(centerText).setFontSize(centerText.length > 4 ? 64 : 150).setY(ult && ult.phase === 'aim' ? 170 : CY - 20);
+      // 必殺技：變暗、瞄準線、飛行殘影
+      const aiming = !!ult && ult.phase === 'aim';
+      this.dim.setAlpha(this.dim.alpha + ((aiming ? 0.7 : 0) - this.dim.alpha) * 0.3);
+      this.ultG.clear();
+      if (aiming) {
+        const u = ult.t / ULT_AIM_S, col = ult.snapped ? 0x4ade99 : 0xfb923c, len = 380 + Math.sin(time / 60) * 12, nx = -ult.dir.y, ny = ult.dir.x;
+        const tx = ball.x + ult.dir.x * len, ty = ball.y + ult.dir.y * len;
+        this.ultG.lineStyle(16, 0x111111).beginPath().moveTo(ball.x, ball.y).lineTo(tx, ty).strokePath();
+        this.ultG.lineStyle(9, col).beginPath().moveTo(ball.x, ball.y).lineTo(tx, ty).strokePath();
+        this.ultG.fillStyle(col).fillTriangle(tx + ult.dir.x * 30, ty + ult.dir.y * 30, tx + nx * 20, ty + ny * 20, tx - nx * 20, ty - ny * 20);
+        this.ultG.lineStyle(6, 0xffffff).beginPath().arc(ball.x, ball.y, 34, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - u)).strokePath();      // 剩餘瞄準時間
+      } else if (ult && ult.phase === 'fly') {
+        const g = this.add.circle(ball.x, ball.y, BALL_R * 1.1, 0xfb923c, 0.7).setDepth(ball.y - 1);
+        this.tweens.add({ targets: g, alpha: 0, scale: 0.3, duration: 260, onComplete: () => g.destroy() });
+      }
 
       // 球
-      this.ballSprite.setPosition(ball.x, ball.y).setRotation(ball.rot).setDepth(ball.y);
+      this.ballSprite.setPosition(ball.x, ball.y).setRotation(ball.rot).setDepth(ult ? 1100 : ball.y);
       this.ballShadow.setPosition(ball.x, ball.y + BALL_R * 0.8);
       // 角色
       const t = time / 1000;
       for (const s of this.sprites) {
         const f = s.f, speed = Math.hypot(f.vx, f.vy);
         const footToBody = (92 - CharRender.BODY_FRAME_H / 2) * CharRender.BODY_SCALE * CHAR_SCALE;   // 腳到身體中心的距離
-        s.c.setPosition(f.x, f.y - footToBody).setDepth(f.y);
-        s.ring.setPosition(f.x, f.y + 2);
+        s.c.setPosition(f.x, f.y - footToBody).setDepth(ult && ult.f === f ? 1100 : f.y);
+        s.ring.setPosition(f.x, f.y + 2).setDepth(ult && ult.f === f ? 1099 : 1);
         s.label.setPosition(f.x, f.y - footToBody - (CharRender.HEAD_SIZE * 0.5 - s.headY) * CHAR_SCALE - 16).setDepth(2000);
         s.c.setAlpha(f.p.online ? 1 : 0.4);
         s.body.setFlipX(f.face < 0);                                   // 往左跑就把身體和大頭一起鏡射
@@ -586,6 +681,7 @@ const SoccerGame = (() => {
     field = list.map((p) => newFielder(p, S(p).team));
     version++;
     score = [0, 0]; remainingMs = MATCH_SECONDS * 1000; overtime = false;
+    ult = null; ultEvent = { n: 0, kind: '', id: null };
     centerText = ''; result = null; goalEvent = { n: 0, team: 0, scorerId: null };
     kickEvent = { n: 0, x: 0, y: 0, power: 0 }; dashEvent = { n: 0, id: null };
     $('soccerPanel').classList.add('hidden');
@@ -596,7 +692,7 @@ const SoccerGame = (() => {
 
   function stop() {
     clearTimers(); clearForfeit();
-    field = []; version++;
+    field = []; version++; ult = null;
     centerText = ''; result = null;
     players.forEach((p) => { delete p.soccer; });
     $('soccerPanel').classList.add('hidden');
@@ -618,6 +714,7 @@ const SoccerGame = (() => {
       const prev = S(p).input;
       S(p).input = { mx: data.mx, my: data.my, ax: data.ax || 0, ay: data.ay || 0, dash: !!data.dash, neck: !!data.neck, at: Date.now(),
         // 按下／放開如果剛好發生在兩次物理運算之間（畫面卡頓時），也要記下來，不然很快的一下會被吃掉
+        ultReq: prev.ultReq || (!!data.ult && !prev.ult), ult: !!data.ult,   // 必殺鈕按下的瞬間觸發一次
         neckDown: prev.neckDown || (!!data.neck && !prev.neck), neckUp: prev.neckUp || (!data.neck && !!prev.neck),
         aimLast: data.neck ? { x: data.ax || 0, y: data.ay || 0 } : prev.aimLast || { x: 0, y: 0 } };   // 按住時最後一次的瞄準方向（放開那一則的 ax、ay 是 0）
     },
@@ -634,14 +731,14 @@ const SoccerGame = (() => {
       if (!field.some((f) => f.p === p)) return { role: 'late' };       // late = 本場開始後才加入，或超過 10 人
       const team = S(p).team;
       return {
-        role: 'player', team: TEAMS[team].id, teamName: TEAMS[team].name, goals: S(p).goals,
+        role: 'player', team: TEAMS[team].id, teamName: TEAMS[team].name, goals: S(p).goals, ult: ultState(field.find((f) => f.p === p)),
         result: result ? (result.winner < 0 ? 'draw' : result.winner === team ? 'win' : 'lose') : null,
       };
     },
     stateExtra: () => ({ score }),                                      // 廣播給所有手機：目前比分
     lobbyInfo: (n) => n ? `已選好 ${n} 人，分紅藍兩隊（最多 ${MAX_PLAYERS} 人上場）` : '至少要有 1 人選好角色',
     // 測試用
-    _state: () => ({ field: field.map((f) => ({ id: f.p.id, x: f.x, y: f.y, vx: f.vx, vy: f.vy, team: S(f.p).team, charge: f.charge, charging: f.charging, lunging: !!f.lunge, dashT: f.dashT, dashCd: f.dashCd })), ball: { ...ball }, score, remainingMs, overtime, phase: Hub.phase }),
+    _state: () => ({ field: field.map((f) => ({ id: f.p.id, x: f.x, y: f.y, vx: f.vx, vy: f.vy, team: S(f.p).team, charge: f.charge, charging: f.charging, lunging: !!f.lunge, dashT: f.dashT, dashCd: f.dashCd, ultUsed: S(f.p).ultUsed })), ult: ult ? { id: ult.f.p.id, phase: ult.phase, t: ult.t, dir: ult.dir, snapped: ult.snapped } : null, ball: { ...ball }, score, remainingMs, overtime, phase: Hub.phase }),
     _set: (o) => { if (o.player) Object.assign(field[o.player.index], o.player.set); if (o.ball) Object.assign(ball, o.ball); if (o.lastIndex != null) ball.last = field[o.lastIndex]; if (o.remainingMs != null) remainingMs = o.remainingMs; },
   };
 })();

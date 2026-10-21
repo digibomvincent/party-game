@@ -176,6 +176,7 @@ function backToLobby() {
 
 $('startBtn').onclick = startSelectedGame;
 $('aiAdd').onclick = () => Hub.AI.add();
+$('aiLevel').onchange = (e) => Hub.AI.setLevel(e.target.value);
 $('aiDel').onclick = () => Hub.AI.remove();
 $('homeBtn').onclick = () => { if (confirm('確定要回大廳嗎？這一場會結束。')) backToLobby(); };
 

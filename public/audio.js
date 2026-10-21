@@ -114,6 +114,8 @@ const Sfx = (() => {
     fall: () => { tone({ type: 'triangle', freq: 700, slide: 90, dur: 0.6, vol: 0.25 }); hiss({ dur: 0.35, vol: 0.12, filter: 'lowpass', f0: 1800, f1: 200 }); },
     respawn: () => tone({ type: 'triangle', freq: 330, slide: 880, dur: 0.25, vol: 0.2 }),
     shrink: () => tone({ type: 'sawtooth', freq: 140, slide: 90, dur: 0.6, vol: 0.12 }),
+    ultStart: () => { tone({ type: 'sawtooth', freq: 120, slide: 900, dur: 0.9, vol: 0.2 }); hiss({ dur: 0.9, vol: 0.14, filter: 'bandpass', f0: 300, f1: 3500, q: 2, attack: 0.5 }); },
+    ultFire: () => { tone({ type: 'sine', freq: 200, slide: 30, dur: 0.6, vol: 0.6 }); hiss({ dur: 0.7, vol: 0.4, filter: 'lowpass', f0: 5000, f1: 300 }); tone({ type: 'square', freq: 1800, slide: 400, dur: 0.4, vol: 0.12 }); },
     // 通用
     roundEnd: () => { arp([79, 74, 71, 67], 0.12, { vol: 0.17, dur: 0.3 }); },
     win: () => { arp([67, 72, 76, 79, 76, 79, 84], 0.11, { vol: 0.2, dur: 0.35 }); tone({ type: 'triangle', freq: mtof(48), dur: 1.2, vol: 0.25, at: ctx.currentTime + 0.3 }); },

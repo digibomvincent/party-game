@@ -141,10 +141,13 @@ function renderLobby() {
     const ci = Hub.characters.findIndex((x) => x.id === p.charId), c = Hub.characters[ci];
     const avatar = c ? `<img class="av" src="${avatarUrl(c, ci)}" alt="">` : `<span class="av"></span>`;
     return p.color
-      ? `<li style="--c:${p.color}">${avatar}<span>${escapeHtml(p.name)}${c ? `<br><small>${c.name}</small>` : ''}</span></li>`
+      ? `<li style="--c:${p.color}">${avatar}<span>${escapeHtml(p.name)}${c ? `<br><small>${p.ai ? '🤖 ' : ''}${c.name}</small>` : ''}</span></li>`
       : `<li style="opacity:.6"><span class="av"></span><span>${escapeHtml(p.name)}<br><small>選角色中…</small></span></li>`;
   }).join('') : '<li class="empty">用手機掃 QR Code 加入</li>';
   $('startBtn').disabled = ready.length < 1;
+  const nAi = Hub.AI ? Hub.AI.list().length : 0;
+  $('aiAdd').disabled = Hub.phase !== 'lobby' || Hub.players.size >= 12;
+  $('aiDel').disabled = Hub.phase !== 'lobby' || nAi === 0;
   const g = Hub.games[selectedGame];
   let text = g && g.lobbyInfo ? g.lobbyInfo(ready.length) : '';
   if (ready.length < list.length) text += `；還有 ${list.length - ready.length} 人沒選好，不會上場`;
@@ -172,6 +175,8 @@ function backToLobby() {
 }
 
 $('startBtn').onclick = startSelectedGame;
+$('aiAdd').onclick = () => Hub.AI.add();
+$('aiDel').onclick = () => Hub.AI.remove();
 $('homeBtn').onclick = () => { if (confirm('確定要回大廳嗎？這一場會結束。')) backToLobby(); };
 
 // ============================================================

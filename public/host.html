@@ -73,6 +73,9 @@
     #homeBtn { position: fixed; top: 12px; right: 16px; font-size: 18px; padding: 8px 18px; border-radius: 10px; background: #334155; color: #fff; z-index: 5; }
     #hud { position: fixed; top: 14px; left: 20px; font-size: 28px; font-weight: bold; pointer-events: none; }
     /* 右下角：音效開關與音量；還沒解鎖（沒點過畫面）時會閃一下提醒 */
+    .aibar { float: right; display: flex; gap: 8px; }
+    .aibar button { font-size: 18px; padding: 6px 16px; background: #334155; color: #fff; border-radius: 10px; }
+    .aibar button:disabled { opacity: .4; }
     #sndBox { position: fixed; right: 16px; bottom: 12px; z-index: 20; display: flex; align-items: center; gap: 8px;
       background: rgba(16, 24, 32, .75); border-radius: 12px; padding: 4px 10px; }
     #sndBox button { font-size: 22px; padding: 2px 8px; background: none; color: #fff; border-radius: 8px; }
@@ -106,7 +109,7 @@
             <div id="url" class="url"></div>
           </div>
         </div>
-        <h2>已加入 <span id="count">0</span> 人</h2>
+        <h2>已加入 <span id="count">0</span> 人 <span class="aibar"><button id="aiAdd" type="button">＋ AI</button><button id="aiDel" type="button">－ AI</button></span></h2>
         <ul id="playerList"></ul>
       </section>
     </div>
@@ -160,6 +163,7 @@
   <script src="char-render.js"></script>
   <script src="audio.js"></script>
   <script src="host.js"></script>
+  <script src="ai.js"></script>
   <script src="games/race.js"></script>
   <script src="games/soccer.js"></script>
   <script src="games/spinner.js"></script>

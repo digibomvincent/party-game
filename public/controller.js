@@ -310,7 +310,8 @@ function render() {
       setScreen(`被撞出去了！<br><small>${head}</small>`, '重生中…', false, color); return;
     }
     // 還沒選操控方式、或體感被重新整理掉了（iPhone 每次重整都要重新授權）：先回到「準備好」
-    const needEnable = !ctrlMode || (ctrlMode === 'gyro' && !gyro.active);
+    // 準備階段一定要看到「準備好」：上次玩留下的操控方式（localStorage）不能讓這一步被跳過
+    const needEnable = phase === 'prepare' ? (!me.ready || !ctrlMode || (ctrlMode === 'gyro' && !gyro.active)) : (!ctrlMode || (ctrlMode === 'gyro' && !gyro.active));
     if (phase === 'prepare' && me.ready && !needEnable) {
       setScreen(`✅ 準備好了<br><small>${ctrlMode === 'gyro' ? '📱 體感操控' : '🕹 搖桿操控'}　等其他人…</small>${gyroNote ? `<br><small>${gyroNote}</small>` : ''}`, '等待中', false, color); return;
     }

@@ -155,8 +155,8 @@ const SoccerGame = (() => {
   }
   function startUlt(f) {
     S(f.p).ultUsed = true;
-    const g = ultGoal(f), d = Math.hypot(g.x - ball.x, g.y - ball.y) || 1;
-    ult = { f, phase: 'aim', t: 0, dir: { x: (g.x - ball.x) / d, y: (g.y - ball.y) / d }, snapped: true };   // 沒瞄準時預設就是對準球門
+    const g = { x: S(f.p).team === 0 ? FIELD.l - GOAL_D / 2 : FIELD.r + GOAL_D / 2, y: CY }, d = Math.hypot(g.x - ball.x, g.y - ball.y) || 1;   // 自己的球門
+    ult = { f, phase: 'aim', t: 0, dir: { x: (g.x - ball.x) / d, y: (g.y - ball.y) / d }, snapped: false };   // 沒推搖桿預設是對準自己的球門（要記得瞄準！）
     for (const o of field) { o.vx = 0; o.vy = 0; o.charging = false; o.charge = 0; o.lunge = null; o.dashT = 0; }
     ball.vx = 0; ball.vy = 0;
     ultEvent = { n: ultEvent.n + 1, kind: 'start', id: f.p.id };

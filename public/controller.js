@@ -149,6 +149,8 @@ function selectChar(id) {
   const i = Math.max(0, cfg.characters.findIndex((c) => c.id === id));
   setBigArt(cfg.characters[i], i);
   [...$('pickGrid').children].forEach((el, k) => el.classList.toggle('sel', k === i));
+  const sel = $('pickGrid').children[i];
+  if (sel && sel.scrollIntoView) sel.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });   // 把選到的那個捲到中間
 }
 function renderPick() {
   const grid = $('pickGrid');
@@ -197,6 +199,20 @@ function renderPick() {
       grid.append(b);
     });
   }
+}
+// 在大圖上左右滑動也可以切換角色
+{
+  let x0 = null;
+  const art = $('bigArt');
+  art.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  art.addEventListener('touchend', (e) => {
+    if (x0 == null || pickStep !== 'char' || !cfg.characters.length) return;
+    const dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (Math.abs(dx) < 40) return;
+    const i = Math.max(0, cfg.characters.findIndex((c) => c.id === pickedChar));
+    const next = Math.min(cfg.characters.length - 1, Math.max(0, i + (dx < 0 ? 1 : -1)));
+    if (next !== i) selectChar(cfg.characters[next].id);
+  }, { passive: true });
 }
 $('pickOk').onclick = () => { pickStep = 'color'; pickMsg = ''; renderPick(); };
 $('pickBack').onclick = () => { pickStep = 'char'; pickMsg = ''; renderPick(); };
@@ -254,6 +270,7 @@ function render() {
   if (me.role === 'late') {            // 本場開始後才加入
     setScreen('本場已經開始了<br>下一場再一起跑！', '等待中', false, color); return;
   }
+  $('soccerPad').classList.toggle('solo', gameState.game === 'spinner');   // 陀螺大戰沒有頭槌／衝刺；足球有（換遊戲時要記得切回來）
   if (gameState.game === 'soccer') {   // 足球：整塊畫面是搖桿；比賽結束顯示勝負
     const sc = gameState.score || [0, 0];
     const board = `<span style="color:#f87171">紅 ${sc[0]}</span> : <span style="color:#60a5fa">${sc[1]} 藍</span>`;
@@ -265,7 +282,6 @@ function render() {
     const hint = phase === 'countdown' ? '預備…' : phase === 'goal' ? '進球！' : '頭槌把球打進對方球門';
     setScreen(`${board}<br>你是 ${team}　<small>${hint}</small>`, '', 'stick', color); return;
   }
-  $('soccerPad').classList.toggle('solo', gameState.game === 'spinner');
   if (gameState.game === 'spinner') {  // 陀螺大戰：傾斜手機（陀螺儀）或搖桿
     const rd = me.round || gameState.round || 1;
     const head = `第 ${rd} 回合　<b>${me.kills || 0}</b> 殺`;
@@ -356,12 +372,12 @@ const STICK_DEAD = 0.15;       // 死區：太小的移動當作沒動，避免�
 const STICK_SEND_MS = 50;      // 拖動時最多每 50ms 送一次
 const KEEPALIVE_MS = 150;      // 有東西按住時也定期重送整組輸入，host 才不會以為斷線
 let stick = null;              // 目前按著搖桿的手指 { id, x0, y0, mx, my }
-const held = { neck: false, dash: false };   // 兩顆按鈕是否按著
+const held = { neck: false, dash: false, ax: 0, ay: 0 };   // 頭槌（含右手滑動的瞄準方向）、衝刺是否按著
 let sentAt = 0, keepTimer = null;
 
 function sendInput() {
   const r2 = (v) => Math.round(v * 100) / 100;
-  socket.emit('input', { mx: r2(stick ? stick.mx : 0), my: r2(stick ? stick.my : 0), dash: held.dash, neck: held.neck });
+  socket.emit('input', { mx: r2(stick ? stick.mx : 0), my: r2(stick ? stick.my : 0), dash: held.dash, neck: held.neck, ax: r2(held.neck ? held.ax : 0), ay: r2(held.neck ? held.ay : 0) });
   sentAt = performance.now();
 }
 // 有任何東西按著就定期重送；全部放開就停
@@ -379,7 +395,8 @@ function releaseStick() {
 }
 function releaseAll() {          // 離開足球畫面 / 分頁被切走：搖桿與按鈕全部放開並通知 host
   const any = !!stick || held.neck || held.dash;
-  stick = null; held.neck = held.dash = false;
+  stick = null; held.neck = held.dash = false; held.ax = held.ay = 0;
+  $('aimBase').classList.add('hidden');
   $('stickBase').classList.add('hidden'); $('stickHint').classList.remove('hidden');
   for (const id of ['btnNeck', 'btnDash']) $(id).classList.remove('pressed');
   updateKeepAlive();
@@ -415,24 +432,51 @@ for (const ev of ['pointerup', 'pointercancel']) {
   zone.addEventListener(ev, (e) => { if (stick && e.pointerId === stick.id) releaseStick(); });
 }
 
-// 頭槌（按住蓄力、放開撞出去）、衝刺（按下就觸發）：按下 / 放開都立刻通知 host
-for (const [key, id, buzz] of [['neck', 'btnNeck', [15]], ['dash', 'btnDash', [25]]]) {
-  const btn = $(id);
+// 衝刺（按下就觸發）
+{
+  const btn = $('btnDash');
   btn.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    btn.setPointerCapture(e.pointerId);
-    held[key] = true; btn.classList.add('pressed');
-    updateKeepAlive(); sendInput();
-    vibrate(buzz);
+    e.preventDefault(); btn.setPointerCapture(e.pointerId);
+    held.dash = true; btn.classList.add('pressed'); updateKeepAlive(); sendInput(); vibrate([25]);
   });
-  const up = () => {
-    if (!held[key]) return;
-    held[key] = false; btn.classList.remove('pressed');
-    updateKeepAlive(); sendInput();
-    if (key === 'neck') vibrate([30]);              // 放開時震一下：撞出去了
+  const up = () => { if (!held.dash) return; held.dash = false; btn.classList.remove('pressed'); updateKeepAlive(); sendInput(); };
+  btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up);
+}
+
+// 頭槌：按住蓄力，在這塊區域「像搖桿一樣滑動」指定要把球打去哪個方向，放開就打出去。
+//       球在角色附近時，頭會直接衝向球，球則照你滑的方向飛；沒滑（單純按住放開）就用目前的移動方向。
+const AIM_R = 60, AIM_DEAD_UI = 0.2;
+{
+  const pad = $('btnNeck'), base = $('aimBase'), knob = $('aimKnob');
+  let aim = null;                                   // { id, x0, y0 }
+  pad.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (aim) return;
+    pad.setPointerCapture(e.pointerId);
+    const rect = pad.getBoundingClientRect();
+    aim = { id: e.pointerId, x0: e.clientX, y0: e.clientY };
+    held.neck = true; held.ax = held.ay = 0; pad.classList.add('pressed');
+    base.style.left = (e.clientX - rect.left) + 'px'; base.style.top = (e.clientY - rect.top) + 'px';
+    knob.style.transform = 'translate(-50%, -50%)'; base.classList.remove('hidden');
+    updateKeepAlive(); sendInput(); vibrate([15]);
+  });
+  pad.addEventListener('pointermove', (e) => {
+    if (!aim || e.pointerId !== aim.id) return;
+    let dx = (e.clientX - aim.x0) / AIM_R, dy = (e.clientY - aim.y0) / AIM_R;
+    const mag = Math.hypot(dx, dy);
+    if (mag > 1) { dx /= mag; dy /= mag; }
+    knob.style.transform = `translate(calc(-50% + ${dx * AIM_R * 0.55}px), calc(-50% + ${dy * AIM_R * 0.55}px))`;
+    const live = Math.min(mag, 1) >= AIM_DEAD_UI;
+    held.ax = live ? dx : 0; held.ay = live ? dy : 0;
+    if (performance.now() - sentAt >= STICK_SEND_MS) sendInput();
+  });
+  const up = (e) => {
+    if (!aim || e.pointerId !== aim.id) return;
+    aim = null; held.neck = false;                  // 放開：host 用放開前最後一次的方向把球打出去
+    pad.classList.remove('pressed'); base.classList.add('hidden');
+    updateKeepAlive(); sendInput(); held.ax = held.ay = 0; vibrate([30]);
   };
-  btn.addEventListener('pointerup', up);
-  btn.addEventListener('pointercancel', up);
+  pad.addEventListener('pointerup', up); pad.addEventListener('pointercancel', up);
 }
 // 分頁被切走時，搖桿與按鈕一定要放開，不然角色會一直跑或一直蓄力
 document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') releaseAll(); });

@@ -127,6 +127,7 @@ io.on('connection', (socket) => {
     io.to(room.hostId).emit('input', {
       playerId: socket.data.playerId,
       mx: num(data?.mx), my: num(data?.my), dash: !!data?.dash, neck: !!data?.neck,
+      ax: num(data?.ax), ay: num(data?.ay),   // 足球：右手「頭槌」區域滑動的方向（瞄準）
       ready: !!data?.ready, mode: data?.mode === 'gyro' || data?.mode === 'stick' ? data.mode : '',   // 陀螺大戰：準備好了嗎、操控方式
     });
   });

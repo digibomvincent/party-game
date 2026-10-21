@@ -65,7 +65,7 @@ function fakePlayer(i) {
     if (now > nextDashAt) { dashUntil = now + 120; nextDashAt = now + 1500 + Math.random() * 3000; }
     socket.emit('input', {
       mx: Math.cos(angle) * 0.9, my: Math.sin(angle) * 0.9,
-      neck: now < neckUntil, dash: now < dashUntil,
+      neck: now < neckUntil, dash: now < dashUntil, ax: Math.cos(angle + 1) * 0.8, ay: Math.sin(angle + 1) * 0.8,   // 頭槌時往隨機方向瞄準
     });
   }, 100));
 

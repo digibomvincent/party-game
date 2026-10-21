@@ -2,7 +2,8 @@
 // games/soccer.js － 「足球」遊戲（M3：頭槌蓄力、衝刺、脖子伸縮；含分紅藍隊、進球計分、倒數、比賽時間、結算）
 //   - 物理全部在 host 端算（固定 60Hz）；手機只送輸入 { mx, my, dash, neck }
 //   - 角色沿用跑步的做法（CharRender：大頭 + 跑步身體）
-//   - 頭槌：按住蓄力、放開後脖子伸長把頭撞出去；衝刺：往搖桿方向衝一小段（有冷卻）
+//   - 頭槌：右手按住「頭槌」區域蓄力，往想打的方向滑動瞄準（球在附近時，球會往你滑的方向飛），放開就打出去；衝刺：往搖桿方向衝一小段（有冷卻）
+//   - 瞄準輔助：滑的方向接近對方球門時，會自動修正成正對球門
 //   - 還沒有：道具（M5）
 //   - 和大廳（host.js）的溝通只透過 Hub 與下面回傳的介面
 // 階段 phase：countdown（開球倒數）→ playing（比賽中）→ goal（進球慶祝）→ countdown … → result（結算）
@@ -50,6 +51,10 @@ const SoccerGame = (() => {
   const MIN_POWER = 0.2;         // 輕輕點一下頭槌的最小力道（0~1）
   const NECK_MIN = 45, NECK_MAX = 135;   // 脖子最短／最長伸出的距離（像素）
   const HEAD_R = 18;             // 頭的碰撞半徑
+  const AIM_DEAD = 0.25;         // 右手滑動小於這個比例（0~1）就當作沒有瞄準（單純點一下）
+  const AIM_POWER = 0.8;         // 滑得越遠，不用蓄力也能打得越用力：力道 = max(蓄力, 滑動距離 × 這個值)
+  const GRAB_RANGE = 125;        // 球離角色這麼近（像素）時，頭會直接衝向球，球再往你瞄準的方向飛
+  const AIM_ASSIST_DEG = 22;     // 瞄準輔助：瞄的方向和「球 → 對方球門中心」差在這個角度內，就自動修正成正對球門（0 = 關閉）
   const KICK_MIN = 420, KICK_MAX = 1150; // 頭槌把球打出去的速度（像素/秒），依力道內插
   const DASH_SECONDS = 0.18;     // 衝刺持續多久
   const DASH_SPEED = 680;        // 衝刺速度
@@ -58,15 +63,15 @@ const SoccerGame = (() => {
 
   // ---------- 這個遊戲的狀態 ----------
   // 每位玩家的足球狀態放在 p.soccer（回大廳時清掉）：{ input, team, goals }
-  const S = (p) => p.soccer || (p.soccer = { input: { mx: 0, my: 0, dash: false, neck: false, at: 0 }, team: 0, goals: 0 });
+  const S = (p) => p.soccer || (p.soccer = { input: { mx: 0, my: 0, ax: 0, ay: 0, dash: false, neck: false, at: 0 }, team: 0, goals: 0 });
   let field = [];                // 場上的角色（見 newFielder）
   // 場上角色：位置速度 + 頭槌／衝刺狀態
   function newFielder(p, team) {
     return { p, x: CX, y: CY, vx: 0, vy: 0, face: 1, aim: { x: team === 0 ? 1 : -1, y: 0 },
-      charging: false, charge: 0, lunge: null, lungeCd: 0, dashT: 0, dashCd: 0, dashDir: { x: 1, y: 0 }, prevNeck: false, prevDash: false };
+      charging: false, charge: 0, aimIn: { x: 0, y: 0 }, lunge: null, lungeCd: 0, dashT: 0, dashCd: 0, dashDir: { x: 1, y: 0 }, prevNeck: false, prevDash: false };
   }
   function resetActions(f) {
-    f.charging = false; f.charge = 0; f.lunge = null; f.lungeCd = 0; f.dashT = 0; f.dashCd = 0; f.prevNeck = false; f.prevDash = false;
+    f.charging = false; f.charge = 0; f.aimIn = { x: 0, y: 0 }; f.lunge = null; f.lungeCd = 0; f.dashT = 0; f.dashCd = 0; f.prevNeck = false; f.prevDash = false;
   }
   let ball = { x: CX, y: CY, vx: 0, vy: 0, rot: 0, last: null };   // last = 最後碰到球的角色
   let version = 0;               // 場上角色換了就加一，場景據此重建
@@ -107,6 +112,22 @@ const SoccerGame = (() => {
   // ============================================================
   // 物理
   // ============================================================
+  // 瞄準輔助：球要飛的方向 dir 如果接近「球 → 對方球門中心」，就修正成正對球門中心
+  function assistDir(f, dir, from) {
+    if (!AIM_ASSIST_DEG) return { dir, snapped: false };
+    const team = S(f.p).team;
+    const gx = team === 0 ? FIELD.r + GOAL_D / 2 : FIELD.l - GOAL_D / 2, gy = CY;       // 紅隊攻右邊球門、藍隊攻左邊
+    const vx = gx - from.x, vy = gy - from.y, vl = Math.hypot(vx, vy) || 1, g = { x: vx / vl, y: vy / vl };
+    const ang = Math.acos(Math.max(-1, Math.min(1, dir.x * g.x + dir.y * g.y))) * 180 / Math.PI;
+    return ang <= AIM_ASSIST_DEG ? { dir: g, snapped: true } : { dir, snapped: false };
+  }
+  // 放開頭槌時，要往哪個方向打：右手有滑動就用滑動的方向，否則用目前的移動／面向方向（再套瞄準輔助）
+  function kickDirection(f, dir) {
+    const m = Math.hypot(f.aimIn.x, f.aimIn.y);
+    const base = m > AIM_DEAD ? { x: f.aimIn.x / m, y: f.aimIn.y / m } : dir;
+    return { ...assistDir(f, base, ball), aimed: m > AIM_DEAD, drag: Math.min(1, m) };
+  }
+
   // 頭槌進行到哪：0（縮著）→ 1（伸到最長）→ 0；快速伸出、停一下、慢慢縮回
   function lungeExt(l) {
     if (l.t < LUNGE_OUT) { const u = l.t / LUNGE_OUT; return 1 - (1 - u) * (1 - u); }
@@ -123,6 +144,10 @@ const SoccerGame = (() => {
       const stale = now - inp.at > INPUT_TIMEOUT_MS;                  // 太久沒收到更新：當作全部放開（防斷線卡住）
       let mx = stale ? 0 : inp.mx, my = stale ? 0 : inp.my;
       const wantNeck = !stale && !!inp.neck, wantDash = !stale && !!inp.dash;
+      if (wantNeck) f.aimIn = { x: inp.ax || 0, y: inp.ay || 0 };
+      // 這一格之間「按下又放開」（太快、畫面剛好卡住）：補上一個按下的瞬間，下面才會看到蓄力與放開
+      const quickTap = !stale && inp.neckDown && inp.neckUp && !wantNeck && !f.charging;
+      inp.neckDown = inp.neckUp = false;                // 右手目前滑到哪（放開前最後一次的值就是要打的方向）
       const mag = Math.hypot(mx, my);
       if (mag > 1) { mx /= mag; my /= mag; }
       const hasDir = mag > 0.25;
@@ -139,13 +164,19 @@ const SoccerGame = (() => {
 
       // 頭槌：按下開始蓄力，放開就把脖子伸出去（蓄越久伸越長、打越遠）
       f.lungeCd = Math.max(0, f.lungeCd - dt);
-      if (wantNeck && !f.prevNeck && !f.lunge && f.lungeCd <= 0) { f.charging = true; f.charge = 0; }
+      if ((wantNeck && !f.prevNeck || quickTap) && !f.lunge && f.lungeCd <= 0) { f.charging = true; f.charge = 0; if (quickTap) f.aimIn = inp.aimLast || { x: 0, y: 0 }; }
       if (f.charging) {
         if (stale) { f.charging = false; f.charge = 0; }               // 斷線：取消，不要突然撞出去
         else if (wantNeck) f.charge = Math.min(1, f.charge + dt / CHARGE_SECONDS);
         else {
-          f.lunge = { t: 0, dir: { x: dir.x, y: dir.y }, power: MIN_POWER + (1 - MIN_POWER) * f.charge, hit: false };
-          f.charging = false; f.charge = 0;
+          const k = kickDirection(f, dir);
+          const power = MIN_POWER + (1 - MIN_POWER) * Math.max(f.charge, k.aimed ? AIM_POWER * k.drag : 0);
+          // 球在附近：頭直接衝向球（一定打得到），但球會往瞄準的方向飛；球不在附近：頭往瞄準的方向伸出去
+          const tx = ball.x - f.x, ty = ball.y - f.y, td = Math.hypot(tx, ty);
+          const near = td <= GRAB_RANGE && td > 0;
+          const headDir = near ? { x: tx / td, y: ty / td } : (k.aimed ? k.dir : { x: dir.x, y: dir.y });
+          f.lunge = { t: 0, dir: headDir, kickDir: k.dir, reach: near ? Math.min(NECK_MAX, td) : null, power, hit: false };
+          f.charging = false; f.charge = 0; f.aimIn = { x: 0, y: 0 };
         }
       }
       f.prevNeck = wantNeck;
@@ -208,14 +239,13 @@ const SoccerGame = (() => {
     for (const f of field) {
       const l = f.lunge;
       if (!l || l.hit || l.t > LUNGE_OUT + LUNGE_HOLD) continue;
-      const reach = NECK_MIN + (NECK_MAX - NECK_MIN) * l.power, e = lungeExt(l);
+      const reach = l.reach != null ? l.reach : NECK_MIN + (NECK_MAX - NECK_MIN) * l.power, e = lungeExt(l);
       const hx = f.x + l.dir.x * reach * e, hy = f.y + l.dir.y * reach * e;
       const dx = ball.x - hx, dy = ball.y - hy, d = Math.hypot(dx, dy), min = HEAD_R + BALL_R;
       if (d < min) {
         const toBall = d > 0 ? { x: dx / d, y: dy / d } : l.dir;
-        const kx = l.dir.x * 0.75 + toBall.x * 0.25, ky = l.dir.y * 0.75 + toBall.y * 0.25, km = Math.hypot(kx, ky) || 1;
-        const speed = KICK_MIN + (KICK_MAX - KICK_MIN) * l.power;
-        ball.vx = (kx / km) * speed + f.vx * 0.3; ball.vy = (ky / km) * speed + f.vy * 0.3;
+        const speed = KICK_MIN + (KICK_MAX - KICK_MIN) * l.power;                    // 球一定照瞄準的方向飛（不是照頭撞到的角度）
+        ball.vx = l.kickDir.x * speed + f.vx * 0.3; ball.vy = l.kickDir.y * speed + f.vy * 0.3;
         ball.x = hx + toBall.x * min; ball.y = hy + toBall.y * min;
         ball.last = f; l.hit = true;
         kickEvent = { n: kickEvent.n + 1, x: ball.x, y: ball.y, power: l.power };
@@ -400,7 +430,7 @@ const SoccerGame = (() => {
 
     // 依場上角色重建：身體（跑步動畫）+ 大頭 + 名字 + 腳下的隊色環
     rebuild() {
-      this.sprites.forEach((s) => { s.c.destroy(); s.label.destroy(); s.ring.destroy(); s.neck.destroy(); s.gauge.destroy(); });
+      this.sprites.forEach((s) => { s.c.destroy(); s.label.destroy(); s.ring.destroy(); s.neck.destroy(); s.gauge.destroy(); s.aim.destroy(); });
       this.sprites = field.map((f) => {
         const p = f.p, team = TEAMS[S(p).team];
         const body = this.add.sprite(0, 0, CharRender.ensureBody(this, p.color), 'f0').setScale(CharRender.BODY_SCALE);
@@ -412,7 +442,8 @@ const SoccerGame = (() => {
         const ring = this.add.ellipse(f.x, f.y, PLAYER_R * 2.4, PLAYER_R * 1.1, 0x000000, 0.25).setStrokeStyle(4, team.color).setDepth(1);
         const neck = this.add.graphics();                            // 頭槌時伸長的脖子（畫在世界座標）
         const gauge = this.add.graphics().setDepth(3000);            // 蓄力條（腳下的圓弧）
-        return { f, c, body, head, label, ring, neck, gauge, headY, color: p.color };
+        const aim = this.add.graphics().setDepth(3500);              // 瞄準箭頭（球會往哪裡飛）
+        return { f, c, body, head, label, ring, neck, gauge, aim, headY, color: p.color };
       });
       this.version = version;
     }
@@ -504,6 +535,18 @@ const SoccerGame = (() => {
         } else {
           s.neck.clear();
         }
+        // 瞄準箭頭：蓄力時顯示球會往哪個方向飛（球在附近就從球畫出去，否則從腳下）；正對球門時變綠色
+        s.aim.clear();
+        if (f.charging && Hub.phase === 'playing') {
+          const k = kickDirection(f, f.aim);
+          const nearBall = Math.hypot(ball.x - f.x, ball.y - f.y) <= GRAB_RANGE;
+          const ox = nearBall ? ball.x : f.x, oy = nearBall ? ball.y : f.y;
+          const len = 60 + 80 * Math.max(f.charge, k.aimed ? AIM_POWER * k.drag : 0), tipX = ox + k.dir.x * len, tipY = oy + k.dir.y * len;
+          const col = k.snapped ? 0x4ade99 : 0xfacc15, nx = -k.dir.y, ny = k.dir.x;
+          s.aim.lineStyle(6, 0x111111).beginPath().moveTo(ox, oy).lineTo(tipX, tipY).strokePath();
+          s.aim.lineStyle(3, col).beginPath().moveTo(ox, oy).lineTo(tipX, tipY).strokePath();
+          s.aim.fillStyle(col).fillTriangle(tipX + k.dir.x * 14, tipY + k.dir.y * 14, tipX + nx * 9, tipY + ny * 9, tipX - nx * 9, tipY - ny * 9);
+        }
         s.gauge.clear();
         if (f.charging) {                                                // 蓄力：腳下的圓弧越來越滿，顏色從黃變紅；身體壓低、頭微微發抖
           const col = Phaser.Display.Color.Interpolate.ColorWithColor(new Phaser.Display.Color(250, 204, 21), new Phaser.Display.Color(239, 68, 68), 100, f.charge * 100);
@@ -571,10 +614,14 @@ const SoccerGame = (() => {
     onInput(playerId, data) {
       const p = players.get(playerId);
       if (!p || !field.some((f) => f.p === p) || typeof data.mx !== 'number') return;
-      S(p).input = { mx: data.mx, my: data.my, dash: !!data.dash, neck: !!data.neck, at: Date.now() };
+      const prev = S(p).input;
+      S(p).input = { mx: data.mx, my: data.my, ax: data.ax || 0, ay: data.ay || 0, dash: !!data.dash, neck: !!data.neck, at: Date.now(),
+        // 按下／放開如果剛好發生在兩次物理運算之間（畫面卡頓時），也要記下來，不然很快的一下會被吃掉
+        neckDown: prev.neckDown || (!!data.neck && !prev.neck), neckUp: prev.neckUp || (!data.neck && !!prev.neck),
+        aimLast: data.neck ? { x: data.ax || 0, y: data.ay || 0 } : prev.aimLast || { x: 0, y: 0 } };   // 按住時最後一次的瞄準方向（放開那一則的 ax、ay 是 0）
     },
     onPlayerLeft(p) {
-      if (p.soccer) p.soccer.input = { mx: 0, my: 0, dash: false, neck: false, at: 0 };
+      if (p.soccer) p.soccer.input = { mx: 0, my: 0, ax: 0, ay: 0, dash: false, neck: false, at: 0 };
       checkTeams();
     },
     onPlayerJoin() { checkTeams(); },                                  // 有人重連回來：取消棄權倒數

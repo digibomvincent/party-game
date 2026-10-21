@@ -210,6 +210,7 @@ const SpinnerGame = (() => {
   }
 
   function respawn(d, now) {
+    Sfx.play('respawn');
     const s = pickSpawn();
     Object.assign(d, { x: s.x, y: s.y, vx: 0, vy: 0, alive: true, falling: false, respawnAt: 0, ghostUntil: now + SPAWN_PROTECT_MS, lastHit: null, ramT: 0, ramCd: 0 });
     sendStatus(d.p);
@@ -269,11 +270,11 @@ const SpinnerGame = (() => {
     $('spinnerPanel').classList.add('hidden');
     setPhase('countdown');
     let count = COUNTDOWN_SECONDS;
-    centerText = String(count);
+    centerText = String(count); Sfx.play('beep');
     const tick = () => {
       count--;
-      if (count > 0) { centerText = String(count); later(tick, 1000); return; }
-      centerText = 'GO!';
+      if (count > 0) { centerText = String(count); Sfx.play('beep'); later(tick, 1000); return; }
+      centerText = 'GO!'; Sfx.play('go');
       setPhase('playing');
       later(() => { if (centerText === 'GO!') centerText = ''; subText = ''; }, 900);
     };
@@ -406,11 +407,14 @@ const SpinnerGame = (() => {
       for (const h of hitEvents.splice(0)) {
         this.burst(h.x, h.y, 300, { speed: { min: 60, max: 120 + h.power * 220 }, scale: { start: 0.9, end: 0 }, tint: [0xffffff, 0xfacc15, 0xf97316] }, Math.round(6 + h.power * 10));
         this.cameras.main.shake(70, 0.002 + h.power * 0.004);
+        Sfx.play('hit', { power: h.power });
       }
       for (const r of ramEvents.splice(0)) {
+        Sfx.play('ram');
         this.burst(r.x - r.dx * DISC_R, r.y - r.dy * DISC_R, 350, { speed: { min: 30, max: 140 }, angle: { min: Math.atan2(-r.dy, -r.dx) * 57.3 - 30, max: Math.atan2(-r.dy, -r.dx) * 57.3 + 30 }, scale: { start: 0.8, end: 0 }, tint: [0xffffff, 0xfdba74, 0xfb923c] }, 12);
       }
       for (const f of fallEvents.splice(0)) {
+        Sfx.play('fall');
         this.burst(f.x, f.y, 600, { speed: { min: 40, max: 160 }, scale: { start: 1, end: 0 }, gravityY: 200, tint: [0x93c5fd, 0xffffff] }, 14);
       }
 

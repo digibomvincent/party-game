@@ -83,6 +83,10 @@ function setPhase(next) {
   $('homeBtn').classList.toggle('hidden', next === 'lobby');   // 遊戲中可隨時回大廳
   if (Hub.currentGame && Hub.currentGame.onPhase) Hub.currentGame.onPhase(next);
   sendAllStatus();
+  // 配樂：大廳與各種結算畫面放輕鬆的；比賽中放該遊戲的曲子
+  const calm = next === 'lobby' || next === 'result' || next === 'roundEnd' || next === 'heatResult' || next === 'prepare';
+  Sfx.music(calm || !Hub.currentGameId ? 'lobby' : Hub.currentGameId);
+  if (next === 'result') Sfx.play('win'); else if (next === 'roundEnd' || next === 'heatResult') Sfx.play('roundEnd');
 }
 
 // 組出要傳給某位玩家手機的個人狀態：通用部分（角色、顏色）+ 目前遊戲的部分
@@ -182,6 +186,8 @@ socket.on('player:join', ({ playerId, name, photo }) => {
     p = { id: playerId, name, online: true, charId: null, color: null };
     Hub.players.set(playerId, p);
   }
+  if (!p.joinedOnce) Sfx.play('join');
+  p.joinedOnce = true;
   p.photo = photo || '';
   if (p.photo) CharRender.loadHead(p, p.photo);
   sendStatus(p);

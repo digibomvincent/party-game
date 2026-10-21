@@ -175,3 +175,11 @@ npm run fake -- <房號> 10 --chaos      # 混亂模式：隨機斷線，1～3 �
 | `GYRO_SMOOTH` | 平滑（越大越跟手、越小越穩） |
 
 **注意：手機的陀螺儀只有在 https 網址才能用**（Render 的網址可以；區網 `http://192.168.x.x` 不行，會自動改用搖桿）。iPhone 會跳出「動作與方向」授權視窗，要選「允許」。
+
+## 音效與配樂（`public/audio.js`）
+
+只在**主畫面**播放，全部用 Web Audio 即時合成，不需要任何音檔。
+- 瀏覽器規定要先點一下頁面才會出聲：主畫面右下角的 🔊 會閃一下提醒，點任何地方就會開始；🔊 可靜音、旁邊的滑桿調音量（也可按 `M` 靜音），設定會記在瀏覽器裡。
+- 配樂：大廳／結算一首輕鬆的，跑步、足球、陀螺大戰各一首（`TRACKS` 裡用小節、音階度數、鼓點描述，想改曲子改那裡）。
+- 音效：`Sfx.play('名稱')`，名稱有 join、beep、go、step、stumble、finish、kick、dash、whistle、goal、hit、ram、fall、respawn、roundEnd、win。
+- 之後想換成自己的音檔：把 `Sfx.play` / `Sfx.music` 內部改成播放檔案即可，遊戲程式不用動。

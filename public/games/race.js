@@ -252,13 +252,14 @@ const RaceGame = (() => {
 
     let count = COUNTDOWN_SECONDS;
     view.countdown = String(count);
+    Sfx.play('beep');
     const tick = () => {
       count--;
       if (count > 0) {
-        view.countdown = String(count);
+        view.countdown = String(count); Sfx.play('beep');
         later(tick, 1000);
       } else {
-        view.countdown = 'GO!';
+        view.countdown = 'GO!'; Sfx.play('go');
         later(() => { view.countdown = ''; }, 800);
         beginRace();
       }
@@ -283,17 +284,20 @@ const RaceGame = (() => {
     if (now < S(p).stunUntil) return;                      // 跌倒中
     if (side === 'both') {
       S(p).stunUntil = now + FALL_MS; S(p).lastSide = null; S(p).fallAt = now;
+      Sfx.play('stumble');
       return;
     }
     if (side === S(p).lastSide) {                          // 連按同一邊
       S(p).slowUntil = now + SLOW_MS; S(p).hopAt = now;
+      Sfx.play('stumble');
       return;
     }
     S(p).lastSide = side;
 
     const step = now < S(p).slowUntil ? STEP_DISTANCE * SLOW_FACTOR : STEP_DISTANCE;
     S(p).pos = Math.min(TRACK_LENGTH, S(p).pos + step);
-    if (S(p).pos < TRACK_LENGTH) return;
+    if (S(p).pos < TRACK_LENGTH) { Sfx.play('step'); return; }
+    Sfx.play('finish');
 
     // 抵達終點：記錄時間與本組名次
     S(p).finished = true;

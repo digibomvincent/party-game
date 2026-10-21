@@ -304,6 +304,7 @@ const SoccerGame = (() => {
     goalEvent = { n: goalEvent.n + 1, team, scorerId: f && !own ? f.p.id : null };
     centerText = `⚽ ${TEAMS[team].name}進球！` + (f ? `\n${own ? '烏龍球 ' : ''}${f.p.name}` : '');
     setPhase('goal');
+    Sfx.play('goal');
     clearTimers();
     later(() => {
       centerText = '';
@@ -318,11 +319,11 @@ const SoccerGame = (() => {
     resetKickoff();
     setPhase('countdown');
     let count = COUNTDOWN_SECONDS;
-    centerText = String(count);
+    centerText = String(count); Sfx.play('beep');
     const tick = () => {
       count--;
-      if (count > 0) { centerText = String(count); later(tick, 1000); return; }
-      centerText = 'GO!';
+      if (count > 0) { centerText = String(count); Sfx.play('beep'); later(tick, 1000); return; }
+      centerText = 'GO!'; Sfx.play('go');
       setPhase('playing');
       later(() => { if (centerText === 'GO!') centerText = ''; }, 800);
     };
@@ -348,7 +349,7 @@ const SoccerGame = (() => {
 
   function endMatch(forfeitWinner) {
     clearTimers(); clearForfeit();
-    centerText = '';
+    centerText = ''; Sfx.play('whistle');
     const forfeited = forfeitWinner === 0 || forfeitWinner === 1;
     const winner = forfeited ? forfeitWinner : score[0] > score[1] ? 0 : score[1] > score[0] ? 1 : -1;
     result = { winner };
@@ -483,8 +484,8 @@ const SoccerGame = (() => {
 
     update(time, delta) {
       if (this.version !== version) this.rebuild();
-      if (this.kickN !== kickEvent.n) { this.kickN = kickEvent.n; this.kickBurst(); }
-      if (this.dashN !== dashEvent.n) { this.dashN = dashEvent.n; }
+      if (this.kickN !== kickEvent.n) { this.kickN = kickEvent.n; this.kickBurst(); Sfx.play('kick', { power: kickEvent.power }); }
+      if (this.dashN !== dashEvent.n) { this.dashN = dashEvent.n; Sfx.play('dash'); }
       if (this.goalN !== goalEvent.n) { this.goalN = goalEvent.n; this.celebrate(); }
       // 固定步長物理（只有比賽中才動；畫面卡頓時最多補 6 步）
       if (Hub.phase === 'playing') {

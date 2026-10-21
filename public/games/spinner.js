@@ -47,6 +47,11 @@ const SpinnerGame = (() => {
                                        //   縮圈時碗不變，平台邊緣越來越靠近中心、拉力越來越小，所以越縮越容易掉出去
   const RESTITUTION = 0.9;             // 圓盤互撞的彈性（1 = 完全彈性）
   const HIT_BOOST = 1.45;              // 撞擊力道加成（>1 比較誇張，撞得比較遠）
+  const RAM_SPEED = 520;               // 衝撞：朝目前操控方向額外加的速度
+  const RAM_SECONDS = 0.4;             // 衝撞狀態持續多久（這段時間撞到人，對方被撞得更遠）
+  const RAM_COOLDOWN = 2;              // 衝撞冷卻（秒）
+  const RAM_POWER = 1.7;               // 衝撞中撞到別人，對方受到的撞擊力道倍率
+  const RAM_MAX_SPEED = 950;           // 衝撞中速度上限
   const FALL_SECONDS = 0.7;            // 掉出平台後縮小旋轉掉下去的時間
   const INPUT_TIMEOUT_MS = 600;        // 超過這麼久沒收到搖桿更新，就當作放開
   const HEAD_PX = 46;                  // 圓盤中間的大頭顯示大小
@@ -54,7 +59,7 @@ const SpinnerGame = (() => {
 
   // ---------- 這個遊戲的狀態 ----------
   // 每位玩家的狀態放在 p.spinner（回大廳時清掉）：{ input, kills1, kills2, deaths, eliminated, roundRank, finalRank }
-  const S = (p) => p.spinner || (p.spinner = { input: { mx: 0, my: 0, at: 0 }, kills1: 0, kills2: 0, deaths: 0, eliminated: false, roundRank: null, finalRank: null });
+  const S = (p) => p.spinner || (p.spinner = { input: { mx: 0, my: 0, at: 0, dash: false, ramReq: false }, kills1: 0, kills2: 0, deaths: 0, eliminated: false, roundRank: null, finalRank: null });
   let discs = [];                      // 場上的圓盤（見 newDisc）
   let version = 0;                     // 場上圓盤換了就加一，場景據此重建
   let round = 1;
@@ -64,6 +69,7 @@ const SpinnerGame = (() => {
   let elimOrder = [];                  // 第 2 回合淘汰順序（先淘汰的在前）
   let centerText = '', subText = '';   // 畫面正中間的大字（倒數）與上方小字（回合說明）
   let feed = [];                       // 擊殺訊息 { text, at }
+  let ramEvents = [];                  // 衝撞事件（場景播衝刺煙塵）
   let hitEvents = [];                  // 撞擊事件（場景播火花、震動）
   let fallEvents = [];                 // 掉下去事件（場景播水花）
   let timers = [];
@@ -76,7 +82,7 @@ const SpinnerGame = (() => {
   const totalKills = (p) => S(p).kills1 + S(p).kills2;
 
   function newDisc(p) {
-    return { p, x: AX, y: AY, vx: 0, vy: 0, alive: true, falling: false, fallT: 0, respawnAt: 0, ghostUntil: 0, lastHit: null, spin: 0 };
+    return { p, x: AX, y: AY, vx: 0, vy: 0, alive: true, falling: false, fallT: 0, respawnAt: 0, ghostUntil: 0, lastHit: null, spin: 0, ramT: 0, ramCd: 0 };
   }
 
   // ============================================================
@@ -86,7 +92,7 @@ const SpinnerGame = (() => {
   function placeRing() {
     discs.forEach((d, i) => {
       const a = (i / discs.length) * Math.PI * 2 - Math.PI / 2, r = ARENA_R * 0.6;
-      Object.assign(d, { x: AX + Math.cos(a) * r, y: AY + Math.sin(a) * r, vx: 0, vy: 0, alive: !S(d.p).eliminated, falling: false, fallT: 0, respawnAt: 0, ghostUntil: 0, lastHit: null });
+      Object.assign(d, { x: AX + Math.cos(a) * r, y: AY + Math.sin(a) * r, vx: 0, vy: 0, alive: !S(d.p).eliminated, falling: false, fallT: 0, respawnAt: 0, ghostUntil: 0, lastHit: null, ramT: 0, ramCd: 0 });
     });
   }
   // 復活位置：在平台中間偏內的範圍隨機挑 24 個點，選離其他人最遠的那個
@@ -128,14 +134,28 @@ const SpinnerGame = (() => {
         if (mag > 1) { mx /= mag; my /= mag; }
         const along = mag > 0 ? (d.vx * mx + d.vy * my) / mag : 0;
         if (along < MAX_SPEED) { d.vx += mx * ACCEL * dt; d.vy += my * ACCEL * dt; }
+        // 衝撞：按一下往操控方向（沒推就往目前滑行方向）猛衝一段；冷卻中、或完全沒在動就不觸發
+        if (inp.ramReq) {
+          inp.ramReq = false;
+          if (d.ramCd <= 0 && now >= d.ghostUntil) {
+            const v = Math.hypot(d.vx, d.vy);
+            const dx = mag > 0.15 ? mx / mag : v > 40 ? d.vx / v : 0, dy = mag > 0.15 ? my / mag : v > 40 ? d.vy / v : 0;
+            if (dx || dy) {
+              d.vx += dx * RAM_SPEED; d.vy += dy * RAM_SPEED; d.ramT = RAM_SECONDS; d.ramCd = RAM_COOLDOWN;
+              ramEvents.push({ x: d.x, y: d.y, dx, dy });
+            }
+          }
+        }
       }
+      d.ramT = Math.max(0, d.ramT - dt); d.ramCd = Math.max(0, d.ramCd - dt);
       // 碗：離中心越遠、被拉回中心的力越大（線性）。往中心衝會越來越快，往外衝會越來越慢
       const rx = d.x - AX, ry = d.y - AY, rd = Math.hypot(rx, ry);
       if (rd > 0.001) { const pull = BOWL_G * (rd / ARENA_R) * dt; d.vx -= (rx / rd) * pull; d.vy -= (ry / rd) * pull; }
       const drag = Math.exp(-DAMP * dt);
       d.vx *= drag; d.vy *= drag;
       const sp = Math.hypot(d.vx, d.vy);
-      if (sp > HARD_MAX_SPEED) { d.vx *= HARD_MAX_SPEED / sp; d.vy *= HARD_MAX_SPEED / sp; }
+      const cap = d.ramT > 0 ? RAM_MAX_SPEED : HARD_MAX_SPEED;
+      if (sp > cap) { d.vx *= cap / sp; d.vy *= cap / sp; }
       d.x += d.vx * dt; d.y += d.vy * dt;
       d.spin += dt * (6 + sp / 40);                              // 圓盤花紋轉動的角度（只是好看）
     }
@@ -153,9 +173,10 @@ const SpinnerGame = (() => {
         const vrel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;                       // 沿著連線、互相靠近的速度
         if (vrel > 0) {
           const j2 = (HIT_BOOST * (1 + RESTITUTION) * vrel) / 2;
-          a.vx -= j2 * nx; a.vy -= j2 * ny; b.vx += j2 * nx; b.vy += j2 * ny;
+          const ja = j2 * (b.ramT > 0 ? RAM_POWER : 1), jb = j2 * (a.ramT > 0 ? RAM_POWER : 1);     // 對方在衝撞中 → 我被撞得更遠
+          a.vx -= ja * nx; a.vy -= ja * ny; b.vx += jb * nx; b.vy += jb * ny;
           a.lastHit = { id: b.p.id, at: now }; b.lastHit = { id: a.p.id, at: now };
-          if (vrel > 80) hitEvents.push({ x: a.x + nx * DISC_R, y: a.y + ny * DISC_R, power: Math.min(1, vrel / 500) });
+          if (vrel > 80) hitEvents.push({ x: a.x + nx * DISC_R, y: a.y + ny * DISC_R, power: Math.min(1, vrel / 500 * (a.ramT > 0 || b.ramT > 0 ? 1.4 : 1)) });
         }
       }
     }
@@ -190,7 +211,7 @@ const SpinnerGame = (() => {
 
   function respawn(d, now) {
     const s = pickSpawn();
-    Object.assign(d, { x: s.x, y: s.y, vx: 0, vy: 0, alive: true, falling: false, respawnAt: 0, ghostUntil: now + SPAWN_PROTECT_MS, lastHit: null });
+    Object.assign(d, { x: s.x, y: s.y, vx: 0, vy: 0, alive: true, falling: false, respawnAt: 0, ghostUntil: now + SPAWN_PROTECT_MS, lastHit: null, ramT: 0, ramCd: 0 });
     sendStatus(d.p);
   }
 
@@ -367,7 +388,8 @@ const SpinnerGame = (() => {
         const c = this.add.container(d.x, d.y, [rim, spin, center, head]);
         const label = this.add.text(d.x, d.y, p.name, { fontSize: '18px', color: '#fff', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(2000);
         const shadow = this.add.ellipse(d.x, d.y, DISC_R * 2.2, DISC_R * 1.3, 0x000000, 0.35).setDepth(3);
-        return { d, c, spin, head, label, shadow };
+        const glow = this.add.circle(d.x, d.y, DISC_R + 10, 0xfb923c, 0.45).setStrokeStyle(4, 0xfff7ed).setDepth(9);   // 衝撞中的光圈
+        return { d, c, spin, head, label, shadow, glow };
       });
       this.version = version;
     }
@@ -385,6 +407,9 @@ const SpinnerGame = (() => {
         this.burst(h.x, h.y, 300, { speed: { min: 60, max: 120 + h.power * 220 }, scale: { start: 0.9, end: 0 }, tint: [0xffffff, 0xfacc15, 0xf97316] }, Math.round(6 + h.power * 10));
         this.cameras.main.shake(70, 0.002 + h.power * 0.004);
       }
+      for (const r of ramEvents.splice(0)) {
+        this.burst(r.x - r.dx * DISC_R, r.y - r.dy * DISC_R, 350, { speed: { min: 30, max: 140 }, angle: { min: Math.atan2(-r.dy, -r.dx) * 57.3 - 30, max: Math.atan2(-r.dy, -r.dx) * 57.3 + 30 }, scale: { start: 0.8, end: 0 }, tint: [0xffffff, 0xfdba74, 0xfb923c] }, 12);
+      }
       for (const f of fallEvents.splice(0)) {
         this.burst(f.x, f.y, 600, { speed: { min: 40, max: 160 }, scale: { start: 1, end: 0 }, gravityY: 200, tint: [0x93c5fd, 0xffffff] }, 14);
       }
@@ -400,11 +425,12 @@ const SpinnerGame = (() => {
       for (const s of this.sprites) {
         const d = s.d, show = d.alive || d.falling, online = d.p.online;
         s.c.setVisible(show); s.label.setVisible(show); s.shadow.setVisible(show);
-        if (!show) continue;
+        if (!show) { s.glow.setVisible(false); continue; }
         let scale = 1, alpha = online ? 1 : 0.4, ang = 0;
         if (d.falling) { const u = Math.min(1, d.fallT / FALL_SECONDS); scale = 1 - 0.75 * u; alpha *= 1 - u * 0.8; ang = u * 6; }
         else if (now < d.ghostUntil) alpha *= Math.floor(now / 100) % 2 ? 1 : 0.35;      // 復活無敵：閃爍
         s.c.setPosition(d.x, d.y).setScale(scale).setAlpha(alpha).setDepth(d.falling ? 1.5 : 10 + d.y * 0.001);
+        s.glow.setPosition(d.x, d.y).setVisible(d.ramT > 0 && !d.falling).setScale(0.9 + 0.3 * (d.ramT / RAM_SECONDS));
         s.spin.setRotation(d.spin + ang);
         s.head.setAngle(Phaser.Math.Clamp(d.vx / 40, -10, 10));                              // 衝得快時頭微微歪一點
         s.label.setPosition(d.x, d.y - DISC_R - 16).setAlpha(alpha).setVisible(!d.falling);
@@ -439,7 +465,7 @@ const SpinnerGame = (() => {
     players.forEach((p) => { delete p.spinner; });
     discs = list.map(newDisc);
     version++;
-    elimOrder = []; hitEvents = []; fallEvents = []; allOfflineSince = 0;
+    elimOrder = []; ramEvents = []; hitEvents = []; fallEvents = []; allOfflineSince = 0;
     Hub.game.scene.stop('spinner');
     Hub.game.scene.start('spinner');
     beginPrepare();
@@ -474,11 +500,12 @@ const SpinnerGame = (() => {
     onInput(playerId, data) {
       const p = players.get(playerId);
       if (!p || !discOf(p) || typeof data.mx !== 'number') return;
-      S(p).input = { mx: data.mx, my: data.my, at: Date.now() };
+      const prev = S(p).input;
+      S(p).input = { mx: data.mx, my: data.my, at: Date.now(), dash: !!data.dash, ramReq: prev.ramReq || (!!data.dash && !prev.dash) };   // 衝撞：按下的瞬間觸發一次
       if (data.mode === 'gyro' || data.mode === 'stick') C(p).mode = data.mode;
       if (data.ready && !C(p).ready) { C(p).ready = true; sendStatus(p); checkAllReady(); }
     },
-    onPlayerLeft(p) { if (p.spinner) p.spinner.input = { mx: 0, my: 0, at: 0 }; checkAllOffline(); checkAllReady(); },
+    onPlayerLeft(p) { if (p.spinner) p.spinner.input = { mx: 0, my: 0, at: 0, dash: false, ramReq: false }; checkAllOffline(); checkAllReady(); },
     onPlayerJoin() { checkAllOffline(); },
     onPhase(phase) {
       $('spinnerPanel').classList.toggle('hidden', phase !== 'roundEnd' && phase !== 'result');
@@ -499,7 +526,7 @@ const SpinnerGame = (() => {
     lobbyInfo: (n) => n ? `已選好 ${n} 人，個人混戰（共 2 回合，最多 ${MAX_PLAYERS} 人）` : '至少要有 1 人選好角色',
     // 測試用
     _state: () => ({ phase: Hub.phase, round, arenaR, remainingMs, elapsedMs, elim: elimOrder.map((d) => d.p.id),
-      discs: discs.map((d) => ({ id: d.p.id, x: d.x, y: d.y, vx: d.vx, vy: d.vy, alive: d.alive, falling: d.falling, kills1: S(d.p).kills1, kills2: S(d.p).kills2, deaths: S(d.p).deaths, eliminated: S(d.p).eliminated, ghost: Date.now() < d.ghostUntil, finalRank: S(d.p).finalRank, roundRank: S(d.p).roundRank })) }),
+      discs: discs.map((d) => ({ id: d.p.id, x: d.x, y: d.y, vx: d.vx, vy: d.vy, alive: d.alive, falling: d.falling, ramT: d.ramT, ramCd: d.ramCd, kills1: S(d.p).kills1, kills2: S(d.p).kills2, deaths: S(d.p).deaths, eliminated: S(d.p).eliminated, ghost: Date.now() < d.ghostUntil, finalRank: S(d.p).finalRank, roundRank: S(d.p).roundRank })) }),
     _set: (o) => {
       if (o.disc) Object.assign(discs[o.disc.index], o.disc.set);
       if (o.remainingMs != null) remainingMs = o.remainingMs;

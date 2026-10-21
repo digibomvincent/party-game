@@ -232,7 +232,7 @@ function setScreen(msg, btnText, enabled, color) {
   if (enabled !== 'stick') releaseAll();
   $('bigBtn').textContent = btnText;
   $('bigBtn').disabled = true;
-  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('stickKnob'), $('btnNeck'), $('btnDash'), $('btnReadyGyro'), $('tiltBubble')]) el.style.setProperty('--c', color);
+  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('stickKnob'), $('btnNeck'), $('btnDash'), $('btnRamGyro'), $('btnReadyGyro'), $('tiltBubble')]) el.style.setProperty('--c', color);
   if (!enabled) { lastSide = null; updateNext(); }
 }
 
@@ -270,6 +270,7 @@ function render() {
   if (me.role === 'late') {            // 本場開始後才加入
     setScreen('本場已經開始了<br>下一場再一起跑！', '等待中', false, color); return;
   }
+  $('btnDash').textContent = gameState.game === 'spinner' ? '衝撞' : '衝刺';
   $('soccerPad').classList.toggle('solo', gameState.game === 'spinner');   // 陀螺大戰沒有頭槌／衝刺；足球有（換遊戲時要記得切回來）
   if (gameState.game === 'soccer') {   // 足球：整塊畫面是搖桿；比賽結束顯示勝負
     const sc = gameState.score || [0, 0];
@@ -432,11 +433,16 @@ for (const ev of ['pointerup', 'pointercancel']) {
   zone.addEventListener(ev, (e) => { if (stick && e.pointerId === stick.id) releaseStick(); });
 }
 
-// 衝刺（按下就觸發）
+// 衝刺（足球）／衝撞（陀螺大戰）：按下就觸發
+const RAM_COOLDOWN_MS = 2000;
 {
   const btn = $('btnDash');
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault(); btn.setPointerCapture(e.pointerId);
+    if (gameState.game === 'spinner') {           // 衝撞有冷卻（host 才是準的，手機這邊只是提示）：冷卻中按了沒反應
+      if (btn.classList.contains('cooling')) return;
+      btn.classList.add('cooling'); setTimeout(() => btn.classList.remove('cooling'), RAM_COOLDOWN_MS);
+    }
     held.dash = true; btn.classList.add('pressed'); updateKeepAlive(); sendInput(); vibrate([25]);
   });
   const up = () => { if (!held.dash) return; held.dash = false; btn.classList.remove('pressed'); updateKeepAlive(); sendInput(); };
@@ -534,8 +540,20 @@ function onOrientation(e) {
 }
 function sendGyro() {
   const r2 = (v) => Math.round(v * 100) / 100;
-  socket.emit('input', { mx: r2(gyro.vec.mx), my: r2(gyro.vec.my), mode: 'gyro' });
+  socket.emit('input', { mx: r2(gyro.vec.mx), my: r2(gyro.vec.my), dash: !!gyro.ram, mode: 'gyro' });
   gyro.sentAt = performance.now();
+}
+// 傾斜操控畫面上的「衝撞」鈕（和搖桿模式共用冷卻提示；真正的冷卻在 host）
+{
+  const btn = $('btnRamGyro');
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); btn.setPointerCapture(e.pointerId);
+    if (btn.classList.contains('cooling')) return;
+    btn.classList.add('cooling', 'pressed'); setTimeout(() => btn.classList.remove('cooling'), RAM_COOLDOWN_MS);
+    gyro.ram = true; sendGyro(); vibrate([25]);
+  });
+  const up = () => { if (!gyro.ram) return; gyro.ram = false; btn.classList.remove('pressed'); sendGyro(); };
+  btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up);
 }
 // 傾斜畫面顯示時，就算手機放著不動也定期重送（host 超過 0.6 秒沒收到會當作回正）
 function updateGyroTimer(on) {

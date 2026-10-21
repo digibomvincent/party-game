@@ -81,7 +81,8 @@
       transform: translate(-50%, -50%); pointer-events: none; }
     #aimKnob { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; border-radius: 50%; background: #fff; transform: translate(-50%, -50%); }
     #btnNeck.pressed { filter: brightness(1.25); }
-    #soccerPad.solo #actions { display: none; }
+    #soccerPad.solo #btnNeck { display: none; }              /* 陀螺大戰只有「衝撞」鈕（共用衝刺那顆） */
+    #actions button.cooling { filter: grayscale(.8) brightness(.6); }
     /* 陀螺大戰：準備（請求體感授權）與傾斜操控畫面 */
     #readyPad { flex: 1; display: flex; flex-direction: column; gap: 14px; margin: 0 16px 24px; justify-content: center; }
     #readyPad button { border: 0; border-radius: 24px; font-family: inherit; font-weight: bold; color: #fff; background: var(--c, #3b82f6); }
@@ -96,6 +97,9 @@
     #tiltRing::after { top: 50%; left: 8%; right: 8%; height: 2px; }
     #tiltBubble { position: absolute; left: 50%; top: 50%; width: 22%; aspect-ratio: 1; border-radius: 50%; background: var(--c, #3b82f6);
       border: 4px solid #fff; transform: translate(-50%, -50%); }
+    #btnRamGyro { border: 0; border-radius: 24px; padding: 26px 0; font-size: 34px; font-weight: bold; font-family: inherit; color: #fff; background: var(--c, #3b82f6); touch-action: none; }
+    #btnRamGyro.pressed { transform: scale(.97); filter: brightness(1.5); }
+    #btnRamGyro.cooling { filter: grayscale(.8) brightness(.6); }
     #gyroBtns { display: flex; gap: 12px; }
     #gyroBtns button { flex: 1; border: 0; border-radius: 18px; padding: 18px 0; font-size: 24px; font-weight: bold; font-family: inherit; color: #fff; background: #334155; }   /* 陀螺大戰：只有搖桿，沒有頭槌／衝刺 */
     #actions button.pressed { transform: scale(.95); filter: brightness(1.5); }
@@ -154,6 +158,7 @@
     </div>
     <div id="gyroPad" class="hidden">
       <div id="tiltBox"><div id="tiltRing"><div id="tiltBubble"></div></div></div>
+      <button id="btnRamGyro">衝撞</button>
       <div id="gyroBtns"><button id="btnCalib">校正（現在的姿勢當水平）</button><button id="btnToStick">改用搖桿</button></div>
     </div>
     <div id="pad" class="hidden">

@@ -6,6 +6,17 @@
 const socket = io();
 const $ = (id) => document.getElementById(id);
 
+// 防止 iPhone 雙擊／雙指放大（Safari 不理 user-scalable=no），放大後就縮不回來
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+document.addEventListener('gesturechange', (e) => e.preventDefault());
+let lastTouchEnd = 0;
+document.addEventListener('touchend', (e) => {
+  const now = Date.now();
+  if (now - lastTouchEnd < 350 && e.cancelable) e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1 && e.cancelable) e.preventDefault(); }, { passive: false });
+
 const PHOTO_ENABLED = false; // 大頭照功能先隱藏；要開回來改成 true
 const SIMUL_MS = 80;         // 左右鍵在這個時間內先後按下，視為「同時按」
 
@@ -232,7 +243,7 @@ function setScreen(msg, btnText, enabled, color) {
   if (enabled !== 'stick') releaseAll();
   $('bigBtn').textContent = btnText;
   $('bigBtn').disabled = true;
-  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('stickKnob'), $('btnNeck'), $('btnDash'), $('btnRamGyro'), $('btnReadyGyro'), $('tiltBubble')]) el.style.setProperty('--c', color);
+  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('stickKnob'), $('btnNeck'), $('btnDash'), $('btnRamGyro'), $('btnReadyGyro'), $('tiltBubble')].filter(Boolean)) el.style.setProperty('--c', color);
   if (!enabled) { lastSide = null; updateNext(); }
 }
 
@@ -545,7 +556,7 @@ function sendGyro() {
 }
 // 傾斜操控畫面上的「衝撞」鈕（和搖桿模式共用冷卻提示；真正的冷卻在 host）
 {
-  const btn = $('btnRamGyro');
+  const btn = $('btnRamGyro') || document.createElement('button');
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault(); btn.setPointerCapture(e.pointerId);
     if (btn.classList.contains('cooling')) return;

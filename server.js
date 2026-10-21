@@ -16,7 +16,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static('public'));
+// 頁面與程式每次都向伺服器確認有沒有更新（手機常常留著舊檔，新舊混用會讓畫面壞掉）
+app.use(express.static('public', { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 
 // ---------- 取得電腦的區域網路 IP（給手機掃 QR Code 用）----------
 function getLanIp() {

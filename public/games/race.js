@@ -18,6 +18,21 @@ const RaceGame = (() => {
   const COUNTDOWN_SECONDS = 3;     // 倒數秒數
   const FINISH_TIMEOUT_MS = 10000; // 第一名抵達後，最多再等幾毫秒就結束這一組
   const HEAT_MAX_MS = 90000;       // 保險：一組最久跑多久（避免沒人到終點卡住）
+  // 角色技能：每人每場一次，比賽中按手機上的「技能」鈕發動（角色 id → 技能）
+  //   boar 騎山豬：BOAR_MS 內每步前進 ×BOAR_MULT，而且不會跌倒、不會被連按懲罰
+  //   sing 唱歌：SING_MS 內本組其他人全都不能動（被歌聲定住）；自己照常跑。巨人（技能發動中）不受影響
+  //   giant 巨人：GIANT_MS 內變兩倍大，每步前進 ×GIANT_MULT，不會跌倒、不會被連按懲罰、不怕歌聲
+  //   slide 往前滑：跌倒往前滑 SLIDE_MS，滑行中不能按鍵，但自動往前衝 SLIDE_DIST
+  const SKILLS = {
+    c1: { kind: 'boar', name: '騎山豬', icon: '🐗' },
+    c2: { kind: 'sing', name: '唱歌', icon: '🎤' },
+    c3: { kind: 'giant', name: '巨人化', icon: '🦣' },
+    c4: { kind: 'slide', name: '往前滑', icon: '🛷' },
+  };
+  const BOAR_MS = 3000, BOAR_MULT = 1.8;
+  const SING_MS = 2200;
+  const GIANT_MS = 4000, GIANT_MULT = 1.5;
+  const SLIDE_MS = 1200, SLIDE_DIST = 450;
   // 畫面排版（Phaser 畫布大小 1280x720）
   const CANVAS_W = 1280, CANVAS_H = 720;
   const LANE_COUNT = PLAYERS_PER_HEAT;
@@ -31,6 +46,7 @@ const RaceGame = (() => {
     heat: null, lane: 0, pos: 0,
     lastSide: null, stunUntil: 0, slowUntil: 0, fallAt: 0, hopAt: 0,   // 連按 / 同時按的懲罰狀態
     finished: false, finishTime: null, heatRank: null, overallRank: null,
+    skillUsed: false, skillKind: null, skillAt: 0, skillUntil: 0, frozenUntil: 0, slideFrom: 0,   // 角色技能狀態（時間都是 Date.now()）
   });
   const S = (p) => p.race || (p.race = newState());
 
@@ -38,6 +54,7 @@ const RaceGame = (() => {
   let currentHeat = -1;        // 目前跑第幾組（從 0 開始）
   let goTime = 0;              // 這一組 GO 的時間點
   let timers = [];             // 目前進行中的計時器，換階段時清掉
+  let skillTimer = null;       // 往前滑技能的推進計時器
 
   function clearTimers() { timers.forEach(clearTimeout); timers = []; }
   function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
@@ -87,7 +104,7 @@ const RaceGame = (() => {
 
     // 依 view.racers 重建本組玩家：身體（跑步動畫）+ 大頭 + 名字
     rebuild() {
-      this.sprites.forEach((s) => { s.c.destroy(); s.label.destroy(); });
+      this.sprites.forEach((s) => { s.c.destroy(); s.label.destroy(); s.boar.destroy(); s.badge.destroy(); });
       this.sprites = view.racers.map((p) => {
         const y = LANE_TOP + S(p).lane * LANE_HEIGHT + LANE_HEIGHT / 2;
         const color = p.color;
@@ -97,10 +114,12 @@ const RaceGame = (() => {
         const headY = (24 - CharRender.BODY_FRAME_H / 2) * CharRender.BODY_SCALE - CharRender.HEAD_SIZE / 2 + 4;
         const head = this.add.image(0, headY, p.photo ? 'head-' + p.id : 'char-' + p.charId)
           .setDisplaySize(CharRender.HEAD_SIZE, CharRender.HEAD_SIZE);
+        const boar = this.add.text(START_X, y, '🐗', { fontSize: '64px' }).setOrigin(0.5, 1).setFlipX(true).setVisible(false);   // 騎山豬的豬（先建立，才會畫在角色後面）
         const c = this.add.container(START_X, y + 28 * CHAR_SCALE, [body, head]).setScale(CHAR_SCALE);
         const label = this.add.text(START_X, y - 22, p.name, { fontSize: '22px', color: '#fff', stroke: '#000', strokeThickness: 4 }).setOrigin(1, 0.5);  // 名字放在頭的左邊
-        return { p, c, body, head, label, color, baseY: y + 28 * CHAR_SCALE, headY, hop: 0, jump: 0, fallY: 0, falling: false,
-          lastPos: S(p).pos, lastFallAt: S(p).fallAt, lastHopAt: S(p).hopAt, celebrated: false };
+        const badge = this.add.text(START_X, y, '', { fontSize: '40px' }).setOrigin(0.5).setDepth(7);                                    // 頭上的標誌（唱歌的麥克風／被定住的 💤）
+        return { p, c, body, head, label, boar, badge, k: 1, ride: 0, color, baseY: y + 28 * CHAR_SCALE, headY, hop: 0, jump: 0, fallY: 0, falling: false,
+          lastSkillAt: S(p).skillAt, nextFx: 0, lastPos: S(p).pos, lastFallAt: S(p).fallAt, lastHopAt: S(p).hopAt, celebrated: false };
       });
       this.version = view.version;
     }
@@ -156,6 +175,40 @@ const RaceGame = (() => {
     this.time.delayedCall(1300, () => em.destroy());   // 播完就銷毀，避免累積
     }
 
+    // 技能的畫面效果：巨人放大、騎山豬、唱歌的音符與被定住的人、往前滑趴在地上衝
+    skillFx(s, now) {
+      const st = S(s.p), sk = SKILLS[s.p.charId];
+      const kind = st.skillKind && now < st.skillUntil ? st.skillKind : null;
+      const frozen = now < st.frozenUntil;
+      if (st.skillAt !== s.lastSkillAt) {                          // 剛發動：飄出技能圖示、畫面震一下
+        s.lastSkillAt = st.skillAt;
+        if (sk) { this.fx(s, sk.icon); this.fx(s, sk.icon); }
+        if (kind === 'giant') this.cameras.main.shake(300, 0.006);
+      }
+      s.k += ((kind === 'giant' ? 2 : 1) - s.k) * 0.2;              // 兩倍大：用平滑過渡
+      s.ride += ((kind === 'boar' ? 26 : 0) - s.ride) * 0.3;       // 騎在豬背上：角色抬高
+      s.c.setScale(CHAR_SCALE * s.k).setDepth(kind === 'giant' ? 8 : 0);
+      const foot = (CharRender.BODY_FRAME_H / 2) * CharRender.BODY_SCALE * CHAR_SCALE;
+      s.skillY = -(s.k - 1) * foot - s.ride;                       // 放大後腳要維持踩在跑道上
+      s.boar.setVisible(kind === 'boar').setPosition(s.c.x, s.baseY + foot + 4);
+      if (kind === 'boar') s.boar.y += Math.abs(Math.sin(now / 70)) * -6;                   // 豬一跳一跳
+      s.badge.setText(kind === 'sing' ? '🎤' : frozen ? '💤' : '').setPosition(s.c.x, s.baseY - 118 - (s.k - 1) * 70 + Math.sin(now / 150) * 4);
+      if (frozen) s.body.setTint(0x777777); else s.body.clearTint();
+      s.frozen = frozen;
+      if (kind === 'sing' && now > s.nextFx) { s.nextFx = now + 220; this.fx(s, ['♪', '♫', '🎵'][Math.floor(now / 220) % 3]); }
+      // 往前滑：整個人趴下，後面噴煙
+      s.sliding = kind === 'slide';
+      if (s.sliding) {
+        s.c.angle += (82 - s.c.angle) * 0.4; s.fallY += (24 - s.fallY) * 0.4;
+        if (now > s.nextFx) { s.nextFx = now + 110; this.fx({ c: { x: s.c.x - 40 }, baseY: s.baseY + 40 }, '💨'); }
+      } else if (s.wasSliding) {
+        s.wasSliding = false;
+        this.tweens.add({ targets: s.c, angle: 0, duration: 220 });
+        this.tweens.add({ targets: s, fallY: 0, duration: 220 });
+      }
+      if (s.sliding) s.wasSliding = true;
+    }
+
     update() {
       if (this.version !== view.version) this.rebuild();
       this.titleText.setText(view.title);
@@ -167,7 +220,8 @@ const RaceGame = (() => {
         s.label.x = s.c.x - CharRender.HEAD_SIZE * CHAR_SCALE / 2 - 4;
         s.label.setText(S(s.p).finished ? `${s.p.name}  第${S(s.p).heatRank}名` : s.p.name);
         // 在移動就播跑步動畫（越快播越快），停下來就站著
-        const running = Math.abs(dx) > 0.6 && !S(s.p).finished && !s.falling;
+        this.skillFx(s, Date.now());
+        const running = Math.abs(dx) > 0.6 && !S(s.p).finished && !s.falling && !s.frozen && !s.sliding;
         if (running) {
           s.body.anims.timeScale = Phaser.Math.Clamp(Math.abs(dx) / 3, 0.6, 3);
           if (!s.body.anims.isPlaying) s.body.play('run-' + s.color);
@@ -191,7 +245,7 @@ const RaceGame = (() => {
         s.lastPos = S(s.p).pos;
         // 抵達終點：慶祝（跳、轉頭、撒花）
         if (S(s.p).finished && !s.celebrated) this.celebrate(s);
-        s.c.y = s.baseY - s.hop - s.jump + s.fallY;
+        s.c.y = s.baseY - s.hop - s.jump + s.fallY + (s.skillY || 0);
       }
     }
   }
@@ -213,6 +267,7 @@ const RaceGame = (() => {
     if (!list.length) return;
 
     clearTimers();
+    clearInterval(skillTimer); skillTimer = setInterval(tickSkills, 33);
     players.forEach((p) => { p.race = newState(); });
     heats = [];
     let i = 0;
@@ -232,7 +287,7 @@ const RaceGame = (() => {
 
   // 離開遊戲（回大廳）：清計時器、面板、畫面
   function stop() {
-    clearTimers();
+    clearTimers(); clearInterval(skillTimer);
     heats = []; currentHeat = -1;
     showRacers([]);
     view.title = ''; view.countdown = '';
@@ -273,40 +328,83 @@ const RaceGame = (() => {
     later(endHeat, HEAT_MAX_MS); // 保險計時器
   }
 
-  // 收到某位玩家按鍵（side：L 左 / R 右 / both 兩邊同時按）
-  //   - 左右交替才會前進
-  //   - 同時按 → 跌倒，FALL_MS 內按鍵無效
-  //   - 連按同一邊 → 這下不前進，原地跳一下，之後 SLOW_MS 內每步只前進 SLOW_FACTOR
-  function onTap(playerId, side) {
-    const p = players.get(playerId);
-    if (!p || Hub.phase !== 'racing' || S(p).heat !== currentHeat || S(p).finished) return;
+  // ---------- 角色技能 ----------
+  const skillOf = (p) => SKILLS[p.charId] || null;
+  const active = (p, kind, now) => S(p).skillKind === kind && now < S(p).skillUntil;     // 這個技能現在正在發動嗎
+  const immune = (p, now) => active(p, 'boar', now) || active(p, 'giant', now);         // 騎山豬／巨人：不會跌倒、不被連按懲罰
+
+  function useSkill(p, now) {
+    const sk = skillOf(p), st = S(p);
+    if (!sk || st.skillUsed || st.finished || now < st.stunUntil || now < st.frozenUntil) return;
+    st.skillUsed = true; st.skillKind = sk.kind; st.skillAt = now; st.lastSide = null;
+    const ms = { boar: BOAR_MS, sing: SING_MS, giant: GIANT_MS, slide: SLIDE_MS }[sk.kind];
+    st.skillUntil = now + ms;
+    if (sk.kind === 'sing') {                                    // 全組其他人（沒跑完、不是發動中的巨人）被歌聲定住
+      for (const o of heatPlayers()) {
+        if (o === p || S(o).finished || active(o, 'giant', now)) continue;
+        S(o).frozenUntil = now + SING_MS;
+        sendStatus(o); later(() => sendStatus(o), SING_MS + 60);
+      }
+    }
+    if (sk.kind === 'slide') { st.slideFrom = st.pos; st.slideDone = false; }
+    Sfx.play('skill_' + sk.kind);
+    sendStatus(p); later(() => sendStatus(p), ms + 60);
+  }
+
+  // 往前滑：滑行期間每個畫面推進位置（先快後慢），結束時剛好滑完 SLIDE_DIST
+  function tickSkills() {
+    if (Hub.phase !== 'racing') return;
     const now = Date.now();
-    if (now < S(p).stunUntil) return;                      // 跌倒中
-    if (side === 'both') {
-      S(p).stunUntil = now + FALL_MS; S(p).lastSide = null; S(p).fallAt = now;
-      Sfx.play('stumble');
-      return;
+    for (const p of heatPlayers()) {
+      const st = S(p);
+      if (st.skillKind !== 'slide' || st.slideDone || st.finished) continue;
+      const u = Math.min(1, (now - st.skillAt) / SLIDE_MS);
+      if (advance(p, Math.max(st.pos, st.slideFrom + SLIDE_DIST * (1 - (1 - u) * (1 - u))), now)) continue;   // 滑到終點了
+      if (u >= 1) st.slideDone = true;
     }
-    if (side === S(p).lastSide) {                          // 連按同一邊
-      S(p).slowUntil = now + SLOW_MS; S(p).hopAt = now;
-      Sfx.play('stumble');
-      return;
-    }
-    S(p).lastSide = side;
+  }
 
-    const step = now < S(p).slowUntil ? STEP_DISTANCE * SLOW_FACTOR : STEP_DISTANCE;
-    S(p).pos = Math.min(TRACK_LENGTH, S(p).pos + step);
-    if (S(p).pos < TRACK_LENGTH) { Sfx.play('step'); return; }
+  // 位置推進到 newPos；到終點就記錄時間與名次並回傳 true
+  function advance(p, newPos, now) {
+    S(p).pos = Math.min(TRACK_LENGTH, newPos);
+    if (S(p).pos < TRACK_LENGTH) return false;
     Sfx.play('finish');
-
-    // 抵達終點：記錄時間與本組名次
     S(p).finished = true;
     S(p).finishTime = now - goTime;
     S(p).heatRank = heatPlayers().filter((x) => S(x).finished).length;
     sendStatus(p);
-
     if (S(p).heatRank === 1) later(endHeat, FINISH_TIMEOUT_MS); // 第一名到了，開始 10 秒倒數
     checkHeatDone();
+    return true;
+  }
+
+  // 收到某位玩家按鍵（side：L 左 / R 右 / both 兩邊同時按 / skill 發動角色技能）
+  //   - 左右交替才會前進
+  //   - 同時按 → 跌倒，FALL_MS 內按鍵無效
+  //   - 連按同一邊 → 這下不前進，原地跳一下，之後 SLOW_MS 內每步只前進 SLOW_FACTOR
+  //   - 被唱歌定住、往前滑的途中：按鍵無效；騎山豬／巨人發動中不會被上面兩種懲罰
+  function onTap(playerId, side) {
+    const p = players.get(playerId);
+    if (!p || Hub.phase !== 'racing' || S(p).heat !== currentHeat || S(p).finished) return;
+    const now = Date.now(), st = S(p);
+    if (side === 'skill') { useSkill(p, now); return; }
+    if (now < st.stunUntil || now < st.frozenUntil || active(p, 'slide', now)) return;   // 跌倒、被定住、滑行中
+    const safe = immune(p, now);
+    if (side === 'both') {
+      if (safe) return;
+      st.stunUntil = now + FALL_MS; st.lastSide = null; st.fallAt = now;
+      Sfx.play('stumble');
+      return;
+    }
+    if (side === st.lastSide && !safe) {                   // 連按同一邊
+      st.slowUntil = now + SLOW_MS; st.hopAt = now;
+      Sfx.play('stumble');
+      return;
+    }
+    st.lastSide = side;
+    const mult = active(p, 'boar', now) ? BOAR_MULT : active(p, 'giant', now) ? GIANT_MULT : 1;
+    const step = STEP_DISTANCE * mult * (now < st.slowUntil && !safe ? SLOW_FACTOR : 1);
+    if (!advance(p, st.pos + step, now)) Sfx.play('step');
   }
 
   // 本組所有「還在線」的人都到終點了嗎？
@@ -389,6 +487,10 @@ const RaceGame = (() => {
       heatRank: S(p).heatRank,
       overallRank: S(p).overallRank,
       finishTime: S(p).finishTime,
+      pos: S(p).pos,
+      frozen: Date.now() < S(p).frozenUntil,                         // 被唱歌定住
+      skill: skillOf(p) ? { kind: skillOf(p).kind, name: skillOf(p).name, icon: skillOf(p).icon,
+        state: S(p).skillUsed ? (Date.now() < S(p).skillUntil ? 'active' : 'used') : 'ready' } : null,
     }),
     stateExtra: () => ({ heat: currentHeat + 1, totalHeats: heats.length }),   // 廣播給所有手機的 game:state 附加欄位
     lobbyInfo: (n) => {                                                        // 大廳顯示：幾人、分幾組

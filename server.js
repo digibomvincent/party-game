@@ -109,11 +109,11 @@ io.on('connection', (socket) => {
     if (typeof cb === 'function') cb({ ok: true });
   });
 
-  // ---------- 手機按鍵 → 轉給 host（side：L 左 / R 右 / both 同時按）----------
+  // ---------- 手機按鍵 → 轉給 host（side：L 左 / R 右 / both 同時按 / skill 角色技能）----------
   socket.on('tap', (data) => {
     if (socket.data?.role !== 'player' || !allow('tap')) return;
     const side = data && data.side;
-    if (side !== 'L' && side !== 'R' && side !== 'both') return;
+    if (side !== 'L' && side !== 'R' && side !== 'both' && side !== 'skill') return;
     const room = rooms.get(socket.data.room);
     if (room) io.to(room.hostId).emit('tap', { playerId: socket.data.playerId, side });
   });

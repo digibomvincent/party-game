@@ -116,6 +116,10 @@ const Sfx = (() => {
     shrink: () => tone({ type: 'sawtooth', freq: 140, slide: 90, dur: 0.6, vol: 0.12 }),
     ultStart: () => { tone({ type: 'sawtooth', freq: 120, slide: 900, dur: 0.9, vol: 0.2 }); hiss({ dur: 0.9, vol: 0.14, filter: 'bandpass', f0: 300, f1: 3500, q: 2, attack: 0.5 }); },
     ultFire: () => { tone({ type: 'sine', freq: 200, slide: 30, dur: 0.6, vol: 0.6 }); hiss({ dur: 0.7, vol: 0.4, filter: 'lowpass', f0: 5000, f1: 300 }); tone({ type: 'square', freq: 1800, slide: 400, dur: 0.4, vol: 0.12 }); },
+    skill_boar: () => { tone({ type: 'sawtooth', freq: 140, slide: 90, dur: 0.18, vol: 0.3 }); tone({ type: 'sawtooth', freq: 120, slide: 70, dur: 0.22, vol: 0.3, at: ctx.currentTime + 0.2 }); hiss({ dur: 0.5, vol: 0.15, filter: 'bandpass', f0: 400, f1: 1500, q: 1 }); },
+    skill_sing: () => arp([76, 79, 83, 81, 79, 76, 72, 76], 0.16, { vol: 0.17, dur: 0.3 }),
+    skill_giant: () => { tone({ type: 'sine', freq: 90, slide: 35, dur: 0.8, vol: 0.6 }); hiss({ dur: 0.6, vol: 0.3, filter: 'lowpass', f0: 800, f1: 100 }); },
+    skill_slide: () => { hiss({ dur: 1.0, vol: 0.3, filter: 'bandpass', f0: 1800, f1: 400, q: 0.8 }); tone({ type: 'triangle', freq: 600, slide: 120, dur: 0.9, vol: 0.12 }); },
     // 通用
     roundEnd: () => { arp([79, 74, 71, 67], 0.12, { vol: 0.17, dur: 0.3 }); },
     win: () => { arp([67, 72, 76, 79, 76, 79, 84], 0.11, { vol: 0.2, dur: 0.35 }); tone({ type: 'triangle', freq: mtof(48), dur: 1.2, vol: 0.25, at: ctx.currentTime + 0.3 }); },

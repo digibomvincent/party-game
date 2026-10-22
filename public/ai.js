@@ -8,9 +8,9 @@ const AI = (() => {
   // 難度：tap 跑步每下間隔(ms)；mis 手滑機率；jit 方向誤差倍率；neckP 頭槌機率倍率；think 足球／陀螺幾 ms 決定一次；ramP 衝撞機率；dash 會不會衝刺；ult 使用必殺技的機率
   const LEVELS = {
     // speed 移動力道；wander 亂晃（朝隨機方向走、或發呆站著）的機率；aim 頭槌瞄準誤差（弧度，越大越不準）；edge 陀螺走到平台多外面才想到要回中間
-    easy:   { name: '簡單', tap: [480, 850], mis: 0.25, jit: 3.0, neckP: 0.12, think: 380, ramP: 0.02, dash: false, ult: 0, speed: 0.5, wander: 0.55, aim: 2.2, edge: 0.93 },
-    normal: { name: '普通', tap: [200, 290], mis: 0.05, jit: 1.2, neckP: 0.45, think: 130, ramP: 0.25, dash: true, ult: 0.6, speed: 0.85, wander: 0.1, aim: 0.4, edge: 0.75 },
-    hard:   { name: '困難', tap: [150, 230], mis: 0.03, jit: 0.7, neckP: 0.6, think: 60, ramP: 0.4, dash: true, ult: 1, speed: 1, wander: 0.02, aim: 0.15, edge: 0.7 },
+    easy:   { name: '簡單', skillP: 0.4, tap: [480, 850], mis: 0.25, jit: 3.0, neckP: 0.12, think: 380, ramP: 0.02, dash: false, ult: 0, speed: 0.5, wander: 0.55, aim: 2.2, edge: 0.93 },
+    normal: { name: '普通', skillP: 0.85, tap: [200, 290], mis: 0.05, jit: 1.2, neckP: 0.45, think: 130, ramP: 0.25, dash: true, ult: 0.6, speed: 0.85, wander: 0.1, aim: 0.4, edge: 0.75 },
+    hard:   { name: '困難', skillP: 1, tap: [150, 230], mis: 0.03, jit: 0.7, neckP: 0.6, think: 60, ramP: 0.4, dash: true, ult: 1, speed: 1, wander: 0.02, aim: 0.15, edge: 0.7 },
   };
   let level = 'easy';
   const lv = () => LEVELS[level];
@@ -27,7 +27,7 @@ const AI = (() => {
     const taken = new Set([...Hub.players.values()].map((p) => p.name));
     const name = 'AI·' + (NAMES.find((n) => !taken.has('AI·' + n)) || ('機器人' + seq));
     const ch = Hub.characters[Math.floor(Math.random() * Hub.characters.length)];
-    const p = { id, name, online: true, charId: ch.id, color, photo: '', ai: { skill: 0.85 + Math.random() * 0.2, useUlt: Math.random() < lv().ult, wanderEnd: 0, side: 'L', nextTap: 0, neckUntil: 0, nextNeck: 0, ramAt: 0, dashAt: 0, pulse: false } };
+    const p = { id, name, online: true, charId: ch.id, color, photo: '', ai: { skill: 0.85 + Math.random() * 0.2, useUlt: Math.random() < lv().ult, wanderEnd: 0, skillDone: false, skillPos: 80 + Math.random() * 600, side: 'L', nextTap: 0, neckUntil: 0, nextNeck: 0, ramAt: 0, dashAt: 0, pulse: false } };
     Hub.players.set(id, p);
     Hub.broadcastState();
     renderLobby();
@@ -62,6 +62,7 @@ const AI = (() => {
     if (Hub.phase !== 'racing' || !st || st.role !== 'racer' || st.heat !== g.stateExtra().heat || st.finished) return;
     if (now < a.nextTap) return;
     const L = lv();
+    if (!a.skillDone && st.skill && st.skill.state === 'ready' && st.pos >= a.skillPos) { a.skillDone = true; if (Math.random() < L.skillP) g.onInput(p.id, { side: 'skill' }); }
     a.nextTap = now + (L.tap[0] + Math.random() * (L.tap[1] - L.tap[0])) / a.skill;
     let side = a.side === 'L' ? 'R' : 'L';
     const r = Math.random();

@@ -355,9 +355,25 @@ function render() {
   if (phase === 'countdown') { setScreen('預備…<br>左、右、左、右 交替按！', '預備', false, color); return; }
   if (phase === 'racing') {
     if (me.finished) setScreen(`到達終點！本組第 ${me.heatRank} 名${time}`, `第 ${me.heatRank} 名`, false, color);
-    else setScreen('左右交替按！<br><small>別同時按、別連按同一邊</small>', '', true, color);
+    else setScreen(me.frozen ? '😵 被歌聲定住了！<br><small>等一下就能動</small>' : '左右交替按！<br><small>別同時按、別連按同一邊</small>', '', true, color);
+    updateSkillBtn(me.finished ? null : me.skill);
   }
 }
+
+// 角色技能鈕（跑步）：每人每場一次
+const SKILL_HINT = { boar: '3 秒加速、不會跌倒', sing: '其他人都不能動', giant: '變巨人、跑更快', slide: '跌倒往前滑' };
+function updateSkillBtn(sk) {
+  const b = $('btnSkill');
+  b.classList.toggle('hidden', !sk);
+  if (!sk) return;
+  b.dataset.state = sk.state;
+  b.innerHTML = sk.state === 'used' ? `${sk.icon} ${sk.name}<small>已使用</small>` : sk.state === 'active' ? `${sk.icon} ${sk.name}中！` : `${sk.icon} ${sk.name}<small>${SKILL_HINT[sk.kind] || ''}</small>`;
+}
+$('btnSkill').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if ($('btnSkill').dataset.state !== 'ready') return;
+  socket.emit('tap', { side: 'skill' }); vibrate([40, 30, 40]);
+});
 
 // ---------- 左右兩顆按鈕：按下送 tap（side = L / R；兩顆幾乎同時按下送 both）----------
 const lastDown = { L: 0, R: 0 };  // 左右鍵最近一次按下的時間

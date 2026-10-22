@@ -62,10 +62,17 @@
     #bigBtn, #pad button { border: 0; border-radius: 28px; font-weight: bold; color: #fff; background: var(--c, #3b82f6);
       font-family: inherit; transition: transform .05s, filter .05s; touch-action: none; }
     #bigBtn { flex: 1; margin: 0 16px 24px; font-size: 56px; }
-    #pad { flex: 1; display: flex; gap: 12px; margin: 0 12px 24px; }
-    #pad button { flex: 1; font-size: 64px; opacity: .75; }
-    #pad button.next { opacity: 1; box-shadow: 0 0 0 6px rgba(255, 255, 255, .55) inset; }
-    #pad button.pressed, #bigBtn.pressed { transform: scale(.95); filter: brightness(1.5); }   /* 按下時的視覺回饋 */
+    #pad { flex: 1; display: flex; flex-direction: column; gap: 12px; margin: 0 12px 24px; }
+    #padRow { flex: 1; display: flex; gap: 12px; }
+    #padRow button { flex: 1; font-size: 64px; opacity: .75; }
+    #btnSkill { flex: none; height: 92px; border: 0; border-radius: 24px; font-size: 30px; font-weight: bold; font-family: inherit; color: #fff; touch-action: none;
+      background: linear-gradient(135deg, #f59e0b, #dc2626); }
+    #btnSkill small { display: block; font-size: 15px; font-weight: normal; opacity: .9; }
+    #btnSkill[data-state="ready"] { animation: ultPulse .9s infinite; }
+    #btnSkill[data-state="active"] { filter: brightness(1.35); }
+    #btnSkill[data-state="used"] { filter: grayscale(1) brightness(.45); }
+    #padRow button.next { opacity: 1; box-shadow: 0 0 0 6px rgba(255, 255, 255, .55) inset; }
+    #padRow button.pressed, #btnSkill.pressed, #bigBtn.pressed { transform: scale(.95); filter: brightness(1.5); }   /* 按下時的視覺回饋 */
     /* 足球：整塊都是浮動搖桿（手指按在哪裡，搖桿就出現在哪裡） */
     #soccerPad { flex: 1; display: flex; gap: 12px; margin: 0 12px 24px; }
     #stickZone { flex: 1.5; border-radius: 28px; background: #16222e; position: relative; overflow: hidden; touch-action: none; }
@@ -170,8 +177,8 @@
       <div id="gyroBtns"><button id="btnCalib">校正（現在的姿勢當水平）</button><button id="btnToStick">改用搖桿</button></div>
     </div>
     <div id="pad" class="hidden">
-      <button id="btnL">左</button>
-      <button id="btnR">右</button>
+      <div id="padRow"><button id="btnL">左</button><button id="btnR">右</button></div>
+      <button id="btnSkill" class="hidden" data-state="ready"></button>
     </div>
   </div>
 

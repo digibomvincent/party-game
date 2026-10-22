@@ -9,15 +9,15 @@ const RaceGame = (() => {
   const { players, $, escapeHtml, setPhase, sendStatus } = Hub;
 
   // ---------- 遊戲數值（要調整手感改這裡）----------
-  const TRACK_LENGTH = 1000;       // 跑道長度（抽象單位）
-  const STEP_DISTANCE = 25;        // 每按一下前進的距離（1000/25 = 要按 40 下）
+  const TRACK_LENGTH = 3000;       // 跑道長度（抽象單位）
+  const STEP_DISTANCE = 25;        // 每按一下前進的距離（3000/25 = 要按 120 下，一場大約 20 秒）
   const PLAYERS_PER_HEAT = 5;      // 每組最多幾人一起跑（人數不能整除時會平均分，例如 10 人 → 5+5、11 人 → 4+4+3）
-  const FALL_MS = 1200;            // 左右鍵同時按 → 跌倒，這段時間內按鍵無效
-  const SLOW_MS = 1000;            // 連按同一邊 → 跳一下，之後這段時間內前進變慢
+  const FALL_MS = 2400;            // 左右鍵同時按 → 跌倒，這段時間內按鍵無效
+  const SLOW_MS = 2000;            // 連按同一邊 → 跳一下，之後這段時間內前進變慢
   const SLOW_FACTOR = 0.5;         // 變慢時每步只前進這個比例
   const COUNTDOWN_SECONDS = 3;     // 倒數秒數
-  const FINISH_TIMEOUT_MS = 10000; // 第一名抵達後，最多再等幾毫秒就結束這一組
-  const HEAT_MAX_MS = 90000;       // 保險：一組最久跑多久（避免沒人到終點卡住）
+  const FINISH_TIMEOUT_MS = 15000; // 第一名抵達後，最多再等幾毫秒就結束這一組
+  const HEAT_MAX_MS = 120000;       // 保險：一組最久跑多久（避免沒人到終點卡住）
   // 角色技能：每人每場一次，比賽中按手機上的「技能」鈕發動（角色 id → 技能）
   //   boar 騎山豬：BOAR_MS 內每步前進 ×BOAR_MULT，而且不會跌倒、不會被連按懲罰
   //   sing 唱歌：SING_MS 內本組其他人全都不能動（被歌聲定住）；自己照常跑。巨人（技能發動中）不受影響
@@ -29,10 +29,10 @@ const RaceGame = (() => {
     c3: { kind: 'giant', name: '巨人化', icon: '🦣' },
     c4: { kind: 'slide', name: '往前滑', icon: '🛷' },
   };
-  const BOAR_MS = 3000, BOAR_MULT = 1.8;
-  const SING_MS = 2200;
-  const GIANT_MS = 4000, GIANT_MULT = 1.5;
-  const SLIDE_MS = 1200, SLIDE_DIST = 450;
+  const BOAR_MS = 9000, BOAR_MULT = 1.8;
+  const SING_MS = 6600;
+  const GIANT_MS = 12000, GIANT_MULT = 1.5;
+  const SLIDE_MS = 3600, SLIDE_DIST = 1350;
   // 畫面排版（Phaser 畫布大小 1280x720）
   const CANVAS_W = 1280, CANVAS_H = 720;
   const LANE_COUNT = PLAYERS_PER_HEAT;

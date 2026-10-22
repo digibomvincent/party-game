@@ -361,7 +361,7 @@ function render() {
 }
 
 // 角色技能鈕（跑步）：每人每場一次
-const SKILL_HINT = { boar: '3 秒加速、不會跌倒', sing: '其他人都不能動', giant: '變巨人、跑更快', slide: '跌倒往前滑' };
+const SKILL_HINT = { boar: '9 秒加速、不會跌倒', sing: '其他人都不能動', giant: '變巨人、跑更快', slide: '跌倒往前滑' };
 function updateSkillBtn(sk) {
   const b = $('btnSkill');
   b.classList.toggle('hidden', !sk);

@@ -27,7 +27,7 @@ const AI = (() => {
     const taken = new Set([...Hub.players.values()].map((p) => p.name));
     const name = 'AI·' + (NAMES.find((n) => !taken.has('AI·' + n)) || ('機器人' + seq));
     const ch = Hub.characters[Math.floor(Math.random() * Hub.characters.length)];
-    const p = { id, name, online: true, charId: ch.id, color, photo: '', ai: { skill: 0.85 + Math.random() * 0.2, useUlt: Math.random() < lv().ult, wanderEnd: 0, skillDone: false, skillPos: 80 + Math.random() * 600, side: 'L', nextTap: 0, neckUntil: 0, nextNeck: 0, ramAt: 0, dashAt: 0, pulse: false } };
+    const p = { id, name, online: true, charId: ch.id, color, photo: '', ai: { skill: 0.85 + Math.random() * 0.2, useUlt: Math.random() < lv().ult, wanderEnd: 0, skillDone: false, skillPos: 240 + Math.random() * 1800, side: 'L', nextTap: 0, neckUntil: 0, nextNeck: 0, ramAt: 0, dashAt: 0, pulse: false } };
     Hub.players.set(id, p);
     Hub.broadcastState();
     renderLobby();

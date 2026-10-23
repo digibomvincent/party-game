@@ -81,8 +81,14 @@ const SpinnerGame = (() => {
   const C = (p) => p.spinnerCtrl || (p.spinnerCtrl = { mode: '', ready: false });
   const totalKills = (p) => S(p).kills1 + S(p).kills2;
 
+  // 角色的身體數值（characters.json 的 spinner 欄位，都是倍率；沒填的當 1）
+  //   speed 最高速度、accel 加速、size 體型（圓盤大小）、mass 重量（重的被撞得少、撞人時推得動）、power 撞擊力道（撞到別人時給對方的力）、
+  //   grip 抓地（滑行阻力：高 = 被撞飛後停得快、飛不遠）、ram 衝撞的衝力、ramRate 衝撞冷卻的快慢（越大冷卻越短）
+  const STAT_DEFAULT = { speed: 1, accel: 1, size: 1, mass: 1, power: 1, grip: 1, ram: 1, ramRate: 1 };
+  const statsOf = (p) => ({ ...STAT_DEFAULT, ...((Hub.characters.find((c) => c.id === p.charId) || {}).spinner || {}) });
   function newDisc(p) {
-    return { p, x: AX, y: AY, vx: 0, vy: 0, alive: true, falling: false, fallT: 0, respawnAt: 0, ghostUntil: 0, lastHit: null, spin: 0, ramT: 0, ramCd: 0 };
+    const st = statsOf(p);
+    return { p, st, r: DISC_R * st.size, x: AX, y: AY, vx: 0, vy: 0, alive: true, falling: false, fallT: 0, respawnAt: 0, ghostUntil: 0, lastHit: null, spin: 0, ramT: 0, ramCd: 0 };
   }
 
   // ============================================================
@@ -133,7 +139,7 @@ const SpinnerGame = (() => {
         const mag = Math.hypot(mx, my);
         if (mag > 1) { mx /= mag; my /= mag; }
         const along = mag > 0 ? (d.vx * mx + d.vy * my) / mag : 0;
-        if (along < MAX_SPEED) { d.vx += mx * ACCEL * dt; d.vy += my * ACCEL * dt; }
+        if (along < MAX_SPEED * d.st.speed) { d.vx += mx * ACCEL * d.st.accel * dt; d.vy += my * ACCEL * d.st.accel * dt; }
         // 衝撞：按一下往操控方向（沒推就往目前滑行方向）猛衝一段；冷卻中、或完全沒在動就不觸發
         if (inp.ramReq) {
           inp.ramReq = false;
@@ -141,7 +147,7 @@ const SpinnerGame = (() => {
             const v = Math.hypot(d.vx, d.vy);
             const dx = mag > 0.15 ? mx / mag : v > 40 ? d.vx / v : 0, dy = mag > 0.15 ? my / mag : v > 40 ? d.vy / v : 0;
             if (dx || dy) {
-              d.vx += dx * RAM_SPEED; d.vy += dy * RAM_SPEED; d.ramT = RAM_SECONDS; d.ramCd = RAM_COOLDOWN;
+              d.vx += dx * RAM_SPEED * d.st.ram; d.vy += dy * RAM_SPEED * d.st.ram; d.ramT = RAM_SECONDS; d.ramCd = RAM_COOLDOWN / d.st.ramRate;
               ramEvents.push({ x: d.x, y: d.y, dx, dy });
             }
           }
@@ -151,7 +157,7 @@ const SpinnerGame = (() => {
       // 碗：離中心越遠、被拉回中心的力越大（線性）。往中心衝會越來越快，往外衝會越來越慢
       const rx = d.x - AX, ry = d.y - AY, rd = Math.hypot(rx, ry);
       if (rd > 0.001) { const pull = BOWL_G * (rd / ARENA_R) * dt; d.vx -= (rx / rd) * pull; d.vy -= (ry / rd) * pull; }
-      const drag = Math.exp(-DAMP * dt);
+      const drag = Math.exp(-DAMP * d.st.grip * dt);
       d.vx *= drag; d.vy *= drag;
       const sp = Math.hypot(d.vx, d.vy);
       const cap = d.ramT > 0 ? RAM_MAX_SPEED : HARD_MAX_SPEED;
@@ -166,17 +172,18 @@ const SpinnerGame = (() => {
       for (let j = i + 1; j < discs.length; j++) {
         const b = discs[j];
         if (!b.alive || b.falling || !b.p.online || now < b.ghostUntil) continue;
-        const dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy), min = DISC_R * 2;
+        const dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy), min = a.r + b.r;
         if (dist <= 0 || dist >= min) continue;
-        const nx = dx / dist, ny = dy / dist, push = (min - dist) / 2;
-        a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;     // 先分開
+        const nx = dx / dist, ny = dy / dist, ma = a.st.mass, mb = b.st.mass;
+        const pa = (min - dist) * mb / (ma + mb), pb = (min - dist) * ma / (ma + mb);     // 先分開（輕的被推開得多）
+        a.x -= nx * pa; a.y -= ny * pa; b.x += nx * pb; b.y += ny * pb;
         const vrel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;                       // 沿著連線、互相靠近的速度
         if (vrel > 0) {
-          const j2 = (HIT_BOOST * (1 + RESTITUTION) * vrel) / 2;
-          const ja = j2 * (b.ramT > 0 ? RAM_POWER : 1), jb = j2 * (a.ramT > 0 ? RAM_POWER : 1);     // 對方在衝撞中 → 我被撞得更遠
-          a.vx -= ja * nx; a.vy -= ja * ny; b.vx += jb * nx; b.vy += jb * ny;
+          const base = (HIT_BOOST * (1 + RESTITUTION) * vrel) / (1 / ma + 1 / mb);       // 不等質量的彈性碰撞（質量相同時 = 原本的算法）
+          const ja = base * b.st.power * (b.ramT > 0 ? RAM_POWER : 1), jb = base * a.st.power * (a.ramT > 0 ? RAM_POWER : 1);   // 對方撞擊力道大、或在衝撞中 → 我被撞得更遠
+          a.vx -= (ja / ma) * nx; a.vy -= (ja / ma) * ny; b.vx += (jb / mb) * nx; b.vy += (jb / mb) * ny;
           a.lastHit = { id: b.p.id, at: now }; b.lastHit = { id: a.p.id, at: now };
-          if (vrel > 80) hitEvents.push({ x: a.x + nx * DISC_R, y: a.y + ny * DISC_R, power: Math.min(1, vrel / 500 * (a.ramT > 0 || b.ramT > 0 ? 1.4 : 1)) });
+          if (vrel > 80) hitEvents.push({ x: a.x + nx * a.r, y: a.y + ny * a.r, power: Math.min(1, vrel / 500 * (a.ramT > 0 || b.ramT > 0 ? 1.4 : 1)) });
         }
       }
     }
@@ -411,7 +418,7 @@ const SpinnerGame = (() => {
       }
       for (const r of ramEvents.splice(0)) {
         Sfx.play('ram');
-        this.burst(r.x - r.dx * DISC_R, r.y - r.dy * DISC_R, 350, { speed: { min: 30, max: 140 }, angle: { min: Math.atan2(-r.dy, -r.dx) * 57.3 - 30, max: Math.atan2(-r.dy, -r.dx) * 57.3 + 30 }, scale: { start: 0.8, end: 0 }, tint: [0xffffff, 0xfdba74, 0xfb923c] }, 12);
+        this.burst(r.x - r.dx * 30, r.y - r.dy * 30, 350, { speed: { min: 30, max: 140 }, angle: { min: Math.atan2(-r.dy, -r.dx) * 57.3 - 30, max: Math.atan2(-r.dy, -r.dx) * 57.3 + 30 }, scale: { start: 0.8, end: 0 }, tint: [0xffffff, 0xfdba74, 0xfb923c] }, 12);
       }
       for (const f of fallEvents.splice(0)) {
         Sfx.play('fall');
@@ -433,12 +440,12 @@ const SpinnerGame = (() => {
         let scale = 1, alpha = online ? 1 : 0.4, ang = 0;
         if (d.falling) { const u = Math.min(1, d.fallT / FALL_SECONDS); scale = 1 - 0.75 * u; alpha *= 1 - u * 0.8; ang = u * 6; }
         else if (now < d.ghostUntil) alpha *= Math.floor(now / 100) % 2 ? 1 : 0.35;      // 復活無敵：閃爍
-        s.c.setPosition(d.x, d.y).setScale(scale).setAlpha(alpha).setDepth(d.falling ? 1.5 : 10 + d.y * 0.001);
-        s.glow.setPosition(d.x, d.y).setVisible(d.ramT > 0 && !d.falling).setScale(0.9 + 0.3 * (d.ramT / RAM_SECONDS));
+        s.c.setPosition(d.x, d.y).setScale(scale * d.st.size).setAlpha(alpha).setDepth(d.falling ? 1.5 : 10 + d.y * 0.001);
+        s.glow.setPosition(d.x, d.y).setVisible(d.ramT > 0 && !d.falling).setScale((0.9 + 0.3 * (d.ramT / RAM_SECONDS)) * d.st.size);
         s.spin.setRotation(d.spin + ang);
         s.head.setAngle(Phaser.Math.Clamp(d.vx / 40, -10, 10));                              // 衝得快時頭微微歪一點
-        s.label.setPosition(d.x, d.y - DISC_R - 16).setAlpha(alpha).setVisible(!d.falling);
-        s.shadow.setPosition(d.x + 3, d.y + 7).setScale(scale).setAlpha(0.35 * alpha);
+        s.label.setPosition(d.x, d.y - d.r - 16).setAlpha(alpha).setVisible(!d.falling);
+        s.shadow.setPosition(d.x + 3, d.y + 7).setScale(scale * d.st.size).setAlpha(0.35 * alpha);
       }
 
       // 上方標題、擊殺榜、訊息、中間大字
@@ -524,6 +531,7 @@ const SpinnerGame = (() => {
         alive: d.alive || d.falling, eliminated: st.eliminated,
         respawnMs: round === 1 && !d.alive && !d.falling && d.respawnAt ? Math.max(0, d.respawnAt - Date.now()) : 0,
         roundRank: st.roundRank, finalRank: st.finalRank, ready: C(p).ready, mode: C(p).mode,
+        ramMs: Math.round(RAM_COOLDOWN * 1000 / d.st.ramRate),                 // 這個角色的衝撞冷卻（手機鈕的冷卻外觀用）
       };
     },
     stateExtra: () => ({ round }),

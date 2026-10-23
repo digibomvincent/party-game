@@ -15,6 +15,16 @@
         "dash": 1.4,
         "mass": 0.65,
         "steady": 0
+      },
+      "spinner": {
+        "speed": 1.2,
+        "accel": 1.3,
+        "size": 0.9,
+        "mass": 0.75,
+        "power": 0.85,
+        "grip": 0.85,
+        "ram": 1.15,
+        "ramRate": 1.3
       }
     },
     {
@@ -32,6 +42,16 @@
         "dash": 0.75,
         "mass": 1.4,
         "steady": 0
+      },
+      "spinner": {
+        "speed": 0.9,
+        "accel": 0.85,
+        "size": 1.1,
+        "mass": 1.3,
+        "power": 1.3,
+        "grip": 1.0,
+        "ram": 1.0,
+        "ramRate": 0.8
       }
     },
     {
@@ -49,6 +69,16 @@
         "dash": 0.9,
         "mass": 1.8,
         "steady": 1
+      },
+      "spinner": {
+        "speed": 0.8,
+        "accel": 0.85,
+        "size": 1.25,
+        "mass": 1.8,
+        "power": 1.0,
+        "grip": 1.2,
+        "ram": 0.9,
+        "ramRate": 0.9
       }
     },
     {
@@ -66,6 +96,16 @@
         "dash": 1.0,
         "mass": 1.0,
         "steady": 0
+      },
+      "spinner": {
+        "speed": 1.0,
+        "accel": 1.0,
+        "size": 1.0,
+        "mass": 1.0,
+        "power": 1.0,
+        "grip": 1.0,
+        "ram": 1.3,
+        "ramRate": 1.5
       }
     }
   ],

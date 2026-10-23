@@ -32,6 +32,10 @@
     #pickScreen { padding: 14px; gap: 10px; }
     #pickTitle { text-align: center; font-size: 26px; font-weight: bold; }
     #bigArt { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+    #statTabs { display: flex; gap: 8px; padding: 0 6px; }
+    #statTabs.hidden { display: none; }
+    #statTabs button { flex: 1; font-size: 14px; padding: 4px 0; border: 0; border-radius: 10px; background: #1f3347; color: #9fb3c8; font-family: inherit; }
+    #statTabs button.on { background: #334e68; color: #fff; }
     #pickStats { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; padding: 0 6px; font-size: 13px; color: #cfe0f1; }
     #pickStats:empty { display: none; }
     #pickStats .st { display: flex; align-items: center; gap: 6px; }
@@ -149,6 +153,7 @@
   <div id="pickScreen" class="screen hidden">
     <div id="pickTitle"></div>
     <div id="bigArt"></div>
+    <div id="statTabs"><button type="button" data-g="soccer" class="on">⚽ 足球</button><button type="button" data-g="spinner">🌀 陀螺</button></div>
     <div id="pickStats"></div>
     <div id="pickMsg"></div>
     <div id="pickGrid"></div>

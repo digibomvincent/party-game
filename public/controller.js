@@ -167,16 +167,25 @@ function setBigArt(c, i) {
   img.src = c.art;
   box.append(img);
 }
-// 足球的角色數值條（characters.json 的 soccer 欄位是倍率：1 = 一般，3 格；每差 0.2 多／少一格）
-const STAT_ROWS = [['speed', '速度'], ['accel', '靈敏'], ['size', '體型'], ['power', '力道'], ['neck', '搆遠'], ['charge', '蓄力'], ['dash', '衝刺'], ['mass', '重量']];
+// 角色數值條（characters.json 的 soccer／spinner 欄位是倍率：1 = 一般，3 格；每差 0.2 多／少一格）
+const STAT_ROWS = {
+  soccer: [['speed', '速度'], ['accel', '靈敏'], ['size', '體型'], ['power', '力道'], ['neck', '搆遠'], ['charge', '蓄力'], ['dash', '衝刺'], ['mass', '重量']],
+  spinner: [['speed', '速度'], ['accel', '靈敏'], ['size', '體型'], ['mass', '重量'], ['power', '撞擊'], ['grip', '抓地'], ['ram', '衝撞'], ['ramRate', '回復']],
+};
+let statTab = 'soccer';
+let lastStatChar = null;
 function renderStats(c) {
+  lastStatChar = c;
   const box = $('pickStats');
-  if (!c || !c.soccer) { box.innerHTML = ''; return; }
-  box.innerHTML = STAT_ROWS.map(([k, name]) => {
-    const n = Math.max(1, Math.min(5, Math.round(3 + ((c.soccer[k] == null ? 1 : c.soccer[k]) - 1) * 5)));
+  [...$('statTabs').children].forEach((b) => b.classList.toggle('on', b.dataset.g === statTab));
+  const st = c && c[statTab];
+  if (!st) { box.innerHTML = ''; return; }
+  box.innerHTML = STAT_ROWS[statTab].map(([k, name]) => {
+    const n = Math.max(1, Math.min(5, Math.round(3 + ((st[k] == null ? 1 : st[k]) - 1) * 5)));
     return `<div class="st"><b>${name}</b><span class="bar">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= n ? 'on' : ''}"></i>`).join('')}</span></div>`;
   }).join('');
 }
+$('statTabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { statTab = b.dataset.g; renderStats(lastStatChar); } });
 function selectChar(id) {
   pickedChar = id;
   const i = Math.max(0, cfg.characters.findIndex((c) => c.id === id));
@@ -307,6 +316,7 @@ function render() {
     setScreen('本場已經開始了<br>下一場再一起跑！', '等待中', false, color); return;
   }
   $('btnDash').textContent = gameState.game === 'spinner' ? '衝撞' : '衝刺';
+  if (gameState.game === 'spinner' && me.ramMs) RAM_COOLDOWN_MS = me.ramMs;
   $('soccerPad').classList.toggle('solo', gameState.game === 'spinner');   // 陀螺大戰沒有頭槌／衝刺；足球有（換遊戲時要記得切回來）
   if (gameState.game === 'soccer') {   // 足球：整塊畫面是搖桿；比賽結束顯示勝負
     const ultSt = me.ult || 'ready';
@@ -495,7 +505,7 @@ for (const ev of ['pointerup', 'pointercancel']) {
 }
 
 // 衝刺（足球）／衝撞（陀螺大戰）：按下就觸發
-const RAM_COOLDOWN_MS = 2000;
+let RAM_COOLDOWN_MS = 2000;      // 衝撞冷卻（毫秒）；每個角色不同，由 host 的狀態更新
 {
   const btn = $('btnDash');
   btn.addEventListener('pointerdown', (e) => {

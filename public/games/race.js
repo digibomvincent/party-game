@@ -16,7 +16,7 @@ const RaceGame = (() => {
   const SLOW_MS = 2000;            // 連按同一邊 → 跳一下，之後這段時間內前進變慢
   const SLOW_FACTOR = 0.5;         // 變慢時每步只前進這個比例
   const COUNTDOWN_SECONDS = 3;     // 倒數秒數
-  const FINISH_TIMEOUT_MS = 15000; // 第一名抵達後，最多再等幾毫秒就結束這一組
+  const FINISH_TIMEOUT_MS = 60000; // 第一名抵達後，最多再等幾毫秒就結束這一組
   const HEAT_MAX_MS = 120000;       // 保險：一組最久跑多久（避免沒人到終點卡住）
   // 角色技能：每人每場一次，比賽中按手機上的「技能」鈕發動（角色 id → 技能）
   //   boar 騎山豬：BOAR_MS 內每步前進 ×BOAR_MULT，而且不會跌倒、不會被連按懲罰
@@ -373,7 +373,7 @@ const RaceGame = (() => {
     S(p).finishTime = now - goTime;
     S(p).heatRank = heatPlayers().filter((x) => S(x).finished).length;
     sendStatus(p);
-    if (S(p).heatRank === 1) later(endHeat, FINISH_TIMEOUT_MS); // 第一名到了，開始 10 秒倒數
+    if (S(p).heatRank === 1) later(endHeat, FINISH_TIMEOUT_MS); // 第一名到了，開始倒數（很長，主要是防止有人掛機卡住）
     checkHeatDone();
     return true;
   }

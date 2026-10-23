@@ -32,6 +32,13 @@
     #pickScreen { padding: 14px; gap: 10px; }
     #pickTitle { text-align: center; font-size: 26px; font-weight: bold; }
     #bigArt { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+    #pickStats { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; padding: 0 6px; font-size: 13px; color: #cfe0f1; }
+    #pickStats:empty { display: none; }
+    #pickStats .st { display: flex; align-items: center; gap: 6px; }
+    #pickStats .st b { flex: none; width: 2.6em; font-weight: normal; color: #9fb3c8; }
+    #pickStats .bar { flex: 1; display: flex; gap: 2px; }
+    #pickStats .bar i { flex: 1; height: 7px; border-radius: 3px; background: #2a3b4c; }
+    #pickStats .bar i.on { background: #facc15; }
     #bigArt img, #bigArt canvas { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 14px; }
     #pickMsg { text-align: center; color: #f87171; min-height: 20px; }
     #pickGrid { display: grid; gap: 10px; }
@@ -142,6 +149,7 @@
   <div id="pickScreen" class="screen hidden">
     <div id="pickTitle"></div>
     <div id="bigArt"></div>
+    <div id="pickStats"></div>
     <div id="pickMsg"></div>
     <div id="pickGrid"></div>
     <button id="pickOk">選這個角色</button>

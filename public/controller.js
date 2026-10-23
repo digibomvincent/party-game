@@ -167,10 +167,21 @@ function setBigArt(c, i) {
   img.src = c.art;
   box.append(img);
 }
+// 足球的角色數值條（characters.json 的 soccer 欄位是倍率：1 = 一般，3 格；每差 0.2 多／少一格）
+const STAT_ROWS = [['speed', '速度'], ['accel', '靈敏'], ['size', '體型'], ['power', '力道'], ['neck', '搆遠'], ['charge', '蓄力'], ['dash', '衝刺'], ['mass', '重量']];
+function renderStats(c) {
+  const box = $('pickStats');
+  if (!c || !c.soccer) { box.innerHTML = ''; return; }
+  box.innerHTML = STAT_ROWS.map(([k, name]) => {
+    const n = Math.max(1, Math.min(5, Math.round(3 + ((c.soccer[k] == null ? 1 : c.soccer[k]) - 1) * 5)));
+    return `<div class="st"><b>${name}</b><span class="bar">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= n ? 'on' : ''}"></i>`).join('')}</span></div>`;
+  }).join('');
+}
 function selectChar(id) {
   pickedChar = id;
   const i = Math.max(0, cfg.characters.findIndex((c) => c.id === id));
   setBigArt(cfg.characters[i], i);
+  renderStats(cfg.characters[i]);
   [...$('pickGrid').children].forEach((el, k) => el.classList.toggle('sel', k === i));
   const sel = $('pickGrid').children[i];
   if (sel && sel.scrollIntoView) sel.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });   // 把選到的那個捲到中間
@@ -207,6 +218,7 @@ function renderPick() {
     $('pickTitle').textContent = '選衣服顏色';
     const i = cfg.characters.findIndex((c) => c.id === pickedChar);
     setBigArt(cfg.characters[i], i);
+    renderStats(cfg.characters[i]);
     const mine = status && status.color;
     cfg.colors.forEach((c) => {
       const b = document.createElement('button');

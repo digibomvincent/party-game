@@ -73,8 +73,14 @@ const SoccerGame = (() => {
   const S = (p) => p.soccer || (p.soccer = { input: { mx: 0, my: 0, ax: 0, ay: 0, dash: false, neck: false, at: 0 }, team: 0, goals: 0, ultUsed: false });
   let field = [];                // 場上的角色（見 newFielder）
   // 場上角色：位置速度 + 頭槌／衝刺狀態
+  // 角色的身體數值（characters.json 的 soccer 欄位，都是對一般數值的倍率；沒填的當 1）
+  //   speed 最高速度、accel 靈敏、size 體型（碰撞半徑與畫面大小）、power 頭槌力道、neck 脖子長度與搆球距離、
+  //   charge 蓄力速度、dash 衝刺距離（冷卻時間會反過來縮短）、mass 重量（互相擠的時候重的擠開輕的）、steady 1 = 輕輕點一下也有不錯的力道
+  const STAT_DEFAULT = { speed: 1, accel: 1, size: 1, power: 1, neck: 1, charge: 1, dash: 1, mass: 1, steady: 0 };
+  const statsOf = (p) => ({ ...STAT_DEFAULT, ...((Hub.characters.find((c) => c.id === p.charId) || {}).soccer || {}) });
   function newFielder(p, team) {
-    return { p, x: CX, y: CY, vx: 0, vy: 0, face: 1, aim: { x: team === 0 ? 1 : -1, y: 0 },
+    const st = statsOf(p);
+    return { p, st, r: PLAYER_R * st.size, x: CX, y: CY, vx: 0, vy: 0, face: 1, aim: { x: team === 0 ? 1 : -1, y: 0 },
       charging: false, charge: 0, aimIn: { x: 0, y: 0 }, lunge: null, lungeCd: 0, dashT: 0, dashCd: 0, dashDir: { x: 1, y: 0 }, prevNeck: false, prevDash: false };
   }
   function resetActions(f) {
@@ -214,7 +220,7 @@ const SoccerGame = (() => {
       // 衝刺：按下的瞬間觸發，有冷卻
       f.dashCd = Math.max(0, f.dashCd - dt);
       if (wantDash && !f.prevDash && f.dashCd <= 0 && f.dashT <= 0) {
-        f.dashT = DASH_SECONDS; f.dashCd = DASH_COOLDOWN; f.dashDir = { x: dir.x, y: dir.y };
+        f.dashT = DASH_SECONDS; f.dashCd = DASH_COOLDOWN / f.st.dash; f.dashDir = { x: dir.x, y: dir.y };
         dashEvent = { n: dashEvent.n + 1, id: f.p.id };
       }
       f.prevDash = wantDash;
@@ -224,15 +230,16 @@ const SoccerGame = (() => {
       if ((wantNeck && !f.prevNeck || quickTap) && !f.lunge && f.lungeCd <= 0) { f.charging = true; f.charge = 0; if (quickTap) f.aimIn = inp.aimLast || { x: 0, y: 0 }; }
       if (f.charging) {
         if (stale) { f.charging = false; f.charge = 0; }               // 斷線：取消，不要突然撞出去
-        else if (wantNeck) f.charge = Math.min(1, f.charge + dt / CHARGE_SECONDS);
+        else if (wantNeck) f.charge = Math.min(1, f.charge + dt * f.st.charge / CHARGE_SECONDS);
         else {
           const k = kickDirection(f, dir);
-          const power = MIN_POWER + (1 - MIN_POWER) * Math.max(f.charge, k.aimed ? AIM_POWER * k.drag : 0);
+          const minP = f.st.steady ? 0.45 : MIN_POWER;
+          const power = minP + (1 - minP) * Math.max(f.charge, k.aimed ? AIM_POWER * k.drag : 0);
           // 球在附近：頭直接衝向球（一定打得到），但球會往瞄準的方向飛；球不在附近：頭往瞄準的方向伸出去
           const tx = ball.x - f.x, ty = ball.y - f.y, td = Math.hypot(tx, ty);
-          const near = td <= GRAB_RANGE && td > 0;
+          const near = td <= GRAB_RANGE * f.st.neck && td > 0;
           const headDir = near ? { x: tx / td, y: ty / td } : (k.aimed ? k.dir : { x: dir.x, y: dir.y });
-          f.lunge = { t: 0, dir: headDir, kickDir: k.dir, reach: near ? Math.min(NECK_MAX, td) : null, power, hit: false };
+          f.lunge = { t: 0, dir: headDir, kickDir: k.dir, reach: near ? Math.min(NECK_MAX * f.st.neck, td) : (NECK_MIN + (NECK_MAX - NECK_MIN) * power) * f.st.neck, power, hit: false };
           f.charging = false; f.charge = 0; f.aimIn = { x: 0, y: 0 };
         }
       }
@@ -250,16 +257,16 @@ const SoccerGame = (() => {
         f.vy += (f.dashDir.y * DASH_SPEED - f.vy) * kd;
       } else {
         const mul = f.charging ? CHARGE_MOVE : f.lunge ? LUNGE_MOVE : 1;
-        const k = 1 - Math.exp(-ACCEL * dt);
-        f.vx += (mx * MAX_SPEED * mul - f.vx) * k;
-        f.vy += (my * MAX_SPEED * mul - f.vy) * k;
+        const k = 1 - Math.exp(-ACCEL * f.st.accel * dt);
+        f.vx += (mx * MAX_SPEED * f.st.speed * mul - f.vx) * k;
+        f.vy += (my * MAX_SPEED * f.st.speed * mul - f.vy) * k;
       }
       f.x += f.vx * dt; f.y += f.vy * dt;
       // 不能出場外
-      if (f.x < FIELD.l + PLAYER_R) { f.x = FIELD.l + PLAYER_R; f.vx = 0; }
-      if (f.x > FIELD.r - PLAYER_R) { f.x = FIELD.r - PLAYER_R; f.vx = 0; }
-      if (f.y < FIELD.t + PLAYER_R) { f.y = FIELD.t + PLAYER_R; f.vy = 0; }
-      if (f.y > FIELD.b - PLAYER_R) { f.y = FIELD.b - PLAYER_R; f.vy = 0; }
+      if (f.x < FIELD.l + f.r) { f.x = FIELD.l + f.r; f.vx = 0; }
+      if (f.x > FIELD.r - f.r) { f.x = FIELD.r - f.r; f.vx = 0; }
+      if (f.y < FIELD.t + f.r) { f.y = FIELD.t + f.r; f.vy = 0; }
+      if (f.y > FIELD.b - f.r) { f.y = FIELD.b - f.r; f.vy = 0; }
       if (Math.abs(f.vx) > 20) f.face = f.vx > 0 ? 1 : -1;
     }
     // 角色之間：只擠開，不彈飛
@@ -267,10 +274,11 @@ const SoccerGame = (() => {
       for (let j = i + 1; j < field.length; j++) {
         const a = field[i], b = field[j];
         if (!a.p.online || !b.p.online) continue;
-        const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = PLAYER_R * 1.8;
+        const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = (a.r + b.r) * 0.9;
         if (d > 0 && d < min) {
-          const push = (min - d) / 2, nx = dx / d, ny = dy / d;
-          a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
+          const nx = dx / d, ny = dy / d, ma = a.st.mass, mb = b.st.mass;     // 重的被推開得少、輕的被推開得多
+          const pa = (min - d) * mb / (ma + mb), pb = (min - d) * ma / (ma + mb);
+          a.x -= nx * pa; a.y -= ny * pa; b.x += nx * pb; b.y += ny * pb;
         }
       }
     }
@@ -284,7 +292,7 @@ const SoccerGame = (() => {
     // 球和角色：角色把球推開（把角色當作很重的東西），並記下最後碰球的人
     for (const f of field) {
       if (flying || !f.p.online) continue;
-      const dx = ball.x - f.x, dy = ball.y - f.y, d = Math.hypot(dx, dy), min = PLAYER_R + BALL_R;
+      const dx = ball.x - f.x, dy = ball.y - f.y, d = Math.hypot(dx, dy), min = f.r + BALL_R;
       if (d > 0 && d < min) {
         const nx = dx / d, ny = dy / d;
         ball.x = f.x + nx * min; ball.y = f.y + ny * min;           // 先分開，避免卡進去
@@ -297,12 +305,12 @@ const SoccerGame = (() => {
     for (const f of field) {
       const l = f.lunge;
       if (flying || !l || l.hit || l.t > LUNGE_OUT + LUNGE_HOLD) continue;
-      const reach = l.reach != null ? l.reach : NECK_MIN + (NECK_MAX - NECK_MIN) * l.power, e = lungeExt(l);
+      const reach = l.reach, e = lungeExt(l);
       const hx = f.x + l.dir.x * reach * e, hy = f.y + l.dir.y * reach * e;
       const dx = ball.x - hx, dy = ball.y - hy, d = Math.hypot(dx, dy), min = HEAD_R + BALL_R;
       if (d < min) {
         const toBall = d > 0 ? { x: dx / d, y: dy / d } : l.dir;
-        const speed = KICK_MIN + (KICK_MAX - KICK_MIN) * l.power;                    // 球一定照瞄準的方向飛（不是照頭撞到的角度）
+        const speed = (KICK_MIN + (KICK_MAX - KICK_MIN) * l.power) * f.st.power;                    // 球一定照瞄準的方向飛（不是照頭撞到的角度）
         ball.vx = l.kickDir.x * speed + f.vx * 0.3; ball.vy = l.kickDir.y * speed + f.vy * 0.3;
         ball.x = hx + toBall.x * min; ball.y = hy + toBall.y * min;
         ball.last = f; l.hit = true;
@@ -509,9 +517,9 @@ const SoccerGame = (() => {
         const headY = (24 - CharRender.BODY_FRAME_H / 2) * CharRender.BODY_SCALE - CharRender.HEAD_SIZE / 2 + 4;
         const head = this.add.image(0, headY, p.photo ? 'head-' + p.id : 'char-' + p.charId)
           .setDisplaySize(CharRender.HEAD_SIZE, CharRender.HEAD_SIZE);
-        const c = this.add.container(f.x, f.y, [body, head]).setScale(CHAR_SCALE);
+        const c = this.add.container(f.x, f.y, [body, head]).setScale(CHAR_SCALE * f.st.size);
         const label = this.add.text(f.x, f.y, p.name, { fontSize: '16px', color: '#fff', stroke: team.css, strokeThickness: 4 }).setOrigin(0.5);
-        const ring = this.add.ellipse(f.x, f.y, PLAYER_R * 2.4, PLAYER_R * 1.1, 0x000000, 0.25).setStrokeStyle(4, team.color).setDepth(1);
+        const ring = this.add.ellipse(f.x, f.y, f.r * 2.4, f.r * 1.1, 0x000000, 0.25).setStrokeStyle(4, team.color).setDepth(1);
         const neck = this.add.graphics();                            // 頭槌時伸長的脖子（畫在世界座標）
         const gauge = this.add.graphics().setDepth(3000);            // 蓄力條（腳下的圓弧）
         const aim = this.add.graphics().setDepth(3500);              // 瞄準箭頭（球會往哪裡飛）
@@ -549,7 +557,7 @@ const SoccerGame = (() => {
 
     // 衝刺：在腳下留一串殘影
     dashTrail(s) {
-      const g = this.add.ellipse(s.f.x, s.f.y + 2, PLAYER_R * 2, PLAYER_R * 0.9, 0xffffff, 0.45).setDepth(1);
+      const g = this.add.ellipse(s.f.x, s.f.y + 2, s.f.r * 2, s.f.r * 0.9, 0xffffff, 0.45).setDepth(1);
       this.tweens.add({ targets: g, alpha: 0, scaleX: 0.4, duration: 260, onComplete: () => g.destroy() });
     }
 
@@ -604,11 +612,11 @@ const SoccerGame = (() => {
       // 角色
       const t = time / 1000;
       for (const s of this.sprites) {
-        const f = s.f, speed = Math.hypot(f.vx, f.vy);
-        const footToBody = (92 - CharRender.BODY_FRAME_H / 2) * CharRender.BODY_SCALE * CHAR_SCALE;   // 腳到身體中心的距離
+        const f = s.f, speed = Math.hypot(f.vx, f.vy), CS = CHAR_SCALE * f.st.size;
+        const footToBody = (92 - CharRender.BODY_FRAME_H / 2) * CharRender.BODY_SCALE * CS;   // 腳到身體中心的距離
         s.c.setPosition(f.x, f.y - footToBody).setDepth(ult && ult.f === f ? 1100 : f.y);
         s.ring.setPosition(f.x, f.y + 2).setDepth(ult && ult.f === f ? 1099 : 1);
-        s.label.setPosition(f.x, f.y - footToBody - (CharRender.HEAD_SIZE * 0.5 - s.headY) * CHAR_SCALE - 16).setDepth(2000);
+        s.label.setPosition(f.x, f.y - footToBody - (CharRender.HEAD_SIZE * 0.5 - s.headY) * CS - 16).setDepth(2000);
         s.c.setAlpha(f.p.online ? 1 : 0.4);
         s.body.setFlipX(f.face < 0);                                   // 往左跑就把身體和大頭一起鏡射
         s.head.setFlipX(f.face < 0);
@@ -617,14 +625,14 @@ const SoccerGame = (() => {
         if (f.dashT > 0 && Math.floor(time / 40) !== s.lastTrail) { s.lastTrail = Math.floor(time / 40); this.dashTrail(s); }
         if (l) {
           // 頭槌中：頭從肩膀上方沿著瞄準方向伸出去，同時往下「俯衝」到球的高度；脖子畫成一條粗線
-          const e = lungeExt(l), reach = NECK_MIN + (NECK_MAX - NECK_MIN) * l.power;
-          const restX = f.x, restY = f.y - footToBody - (s.headY * -1) * CHAR_SCALE;          // 頭平常的位置（世界座標）
+          const e = lungeExt(l), reach = l.reach;
+          const restX = f.x, restY = f.y - footToBody - (s.headY * -1) * CS;          // 頭平常的位置（世界座標）
           const hitX = f.x + l.dir.x * reach, hitY = f.y + l.dir.y * reach - 8;
           const hx = restX + (hitX - restX) * e, hy = restY + (hitY - restY) * e;
-          s.head.setPosition((hx - s.c.x) / CHAR_SCALE, (hy - s.c.y) / CHAR_SCALE);
+          s.head.setPosition((hx - s.c.x) / CS, (hy - s.c.y) / CS);
           s.head.angle = l.dir.x * 14 * e * (f.face < 0 ? -1 : 1);
           s.head.setFlipX(l.dir.x < -0.1 ? true : l.dir.x > 0.1 ? false : f.face < 0);
-          const sx = f.x, sy = f.y - footToBody - (s.headY * -1) * CHAR_SCALE + CharRender.HEAD_SIZE * 0.5 * CHAR_SCALE;   // 脖子根部（肩膀）
+          const sx = f.x, sy = f.y - footToBody - (s.headY * -1) * CS + CharRender.HEAD_SIZE * 0.5 * CS;   // 脖子根部（肩膀）
           s.neck.clear().setDepth(f.y - 0.5);
           s.neck.lineStyle(14, 0x111111).beginPath().moveTo(sx, sy).lineTo(hx, hy).strokePath();
           s.neck.lineStyle(9, Phaser.Display.Color.HexStringToColor(f.p.color).color).beginPath().moveTo(sx, sy).lineTo(hx, hy).strokePath();
@@ -635,7 +643,7 @@ const SoccerGame = (() => {
         s.aim.clear();
         if (f.charging && Hub.phase === 'playing') {
           const k = kickDirection(f, f.aim);
-          const nearBall = Math.hypot(ball.x - f.x, ball.y - f.y) <= GRAB_RANGE;
+          const nearBall = Math.hypot(ball.x - f.x, ball.y - f.y) <= GRAB_RANGE * f.st.neck;
           const ox = nearBall ? ball.x : f.x, oy = nearBall ? ball.y : f.y;
           const len = 60 + 80 * Math.max(f.charge, k.aimed ? AIM_POWER * k.drag : 0), tipX = ox + k.dir.x * len, tipY = oy + k.dir.y * len;
           const col = k.snapped ? 0x4ade99 : 0xfacc15, nx = -k.dir.y, ny = k.dir.x;

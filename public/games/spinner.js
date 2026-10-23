@@ -52,6 +52,22 @@ const SpinnerGame = (() => {
   const RAM_COOLDOWN = 2;              // 衝撞冷卻（秒）
   const RAM_POWER = 1.7;               // 衝撞中撞到別人，對方受到的撞擊力道倍率
   const RAM_MAX_SPEED = 950;           // 衝撞中速度上限
+  // ---------- 場中障礙（比賽中隨機出現、生效一段時間後消失；時間都用「遊戲時間」obsClock，畫面卡頓時一起變慢）----------
+  const OBS_FIRST_S = 5;               // 開打後多久出現第一個
+  const OBS_GAP_S = [5, 8];            // 之後每隔多久再出現一個（隨機）
+  const OBS_WARN_S = 1.5;              // 出現前的預告（閃爍輪廓，還沒有效果）
+  const OBS_ACTIVE_S = 10;             // 生效多久
+  const OBS_FADE_S = 1.0;              // 消失時的淡出
+  const OBS_MAX = 3, OBS_MAX_CROWD = 2;  // 同時最多幾個（10 人以上用後者）
+  const OBS_POOL = { 1: ['boost', 'ice', 'mud', 'bumper', 'turntable'], 2: ['boost', 'ice', 'mud', 'bumper', 'turntable', 'bar', 'hole'] };
+  const BOOST_LEN = 150, BOOST_W = 56, BOOST_SPEED = 420, BOOST_CD = 0.6;   // 加速帶：壓到就沿箭頭方向加速
+  const ZONE_R = 85;                   // 冰面／泥地半徑
+  const ICE_DAMP = 0.2, ICE_ACC = 0.5; // 冰面：阻力 ×0.2、自己操控的加速 ×0.5（很滑、很難控）
+  const MUD_DAMP = 3, MUD_ACC = 0.8;   // 泥地：阻力 ×3（停得快、不容易被撞飛）
+  const BUMPER_R = 24, BUMPER_E = 1.3, BUMPER_MIN = 300;   // 彈跳柱：彈性 1.3，至少把人彈開到這個速度（重的會少一點）
+  const TURN_R = 95, TURN_A = 650;     // 轉盤：半徑、切線加速度（重的比較不容易被甩）
+  const BAR_HALF = 100, BAR_T = 12, BAR_W = 1.3;   // 旋轉棒：半長、半粗、角速度（rad/s）
+  const HOLE_R = 28;                   // 洞：圓盤中心進到洞裡就掉下去
   const FALL_SECONDS = 0.7;            // 掉出平台後縮小旋轉掉下去的時間
   const INPUT_TIMEOUT_MS = 600;        // 超過這麼久沒收到搖桿更新，就當作放開
   const HEAD_PX = 46;                  // 圓盤中間的大頭顯示大小
@@ -69,6 +85,10 @@ const SpinnerGame = (() => {
   let elimOrder = [];                  // 第 2 回合淘汰順序（先淘汰的在前）
   let centerText = '', subText = '';   // 畫面正中間的大字（倒數）與上方小字（回合說明）
   let feed = [];                       // 擊殺訊息 { text, at }
+  let obstacles = [];                  // 場中障礙 { id, type, x, y, angle, dir, spawnAt, activeAt, fadeAt, endAt }（時間是 obsClock 的秒數）
+  let obsClock = 0, nextObsAt = 0, obsSeq = 0, lastObsType = '';
+  let obsEvents = [];                  // 障礙出現事件（場景播音效）
+  let boostEvents = [];                // 加速帶被踩到（場景播音效、火花）
   let ramEvents = [];                  // 衝撞事件（場景播衝刺煙塵）
   let hitEvents = [];                  // 撞擊事件（場景播火花、震動）
   let fallEvents = [];                 // 掉下去事件（場景播水花）
@@ -88,7 +108,7 @@ const SpinnerGame = (() => {
   const statsOf = (p) => ({ ...STAT_DEFAULT, ...((Hub.characters.find((c) => c.id === p.charId) || {}).spinner || {}) });
   function newDisc(p) {
     const st = statsOf(p);
-    return { p, st, r: DISC_R * st.size, x: AX, y: AY, vx: 0, vy: 0, alive: true, falling: false, fallT: 0, respawnAt: 0, ghostUntil: 0, lastHit: null, spin: 0, ramT: 0, ramCd: 0 };
+    return { p, st, r: DISC_R * st.size, x: AX, y: AY, vx: 0, vy: 0, alive: true, falling: false, fallT: 0, respawnAt: 0, ghostUntil: 0, lastHit: null, spin: 0, ramT: 0, ramCd: 0, boostCd: 0, dampMul: 1, accMul: 1 };
   }
 
   // ============================================================
@@ -109,6 +129,7 @@ const SpinnerGame = (() => {
       const x = AX + Math.cos(a) * r, y = AY + Math.sin(a) * r;
       let nearest = Infinity;
       for (const d of discs) if (d.alive && !d.falling) nearest = Math.min(nearest, Math.hypot(d.x - x, d.y - y));
+      for (const o of obstacles) if (o.type === 'hole' || o.type === 'bumper' || o.type === 'bar') nearest = Math.min(nearest, Math.hypot(o.x - x, o.y - y) - obsRadius(o) - 30);   // 別復活在洞、柱子、旋轉棒上
       if (nearest > best.score) best = { x, y, score: nearest };
     }
     return best;
@@ -117,6 +138,98 @@ const SpinnerGame = (() => {
   // ============================================================
   // 物理
   // ============================================================
+  // ---------- 場中障礙 ----------
+  // 生命週期：spawnAt（出現預告）→ activeAt（開始生效）→ fadeAt（生效結束、淡出）→ endAt（消失）
+  const obsActive = (o) => obsClock >= o.activeAt && obsClock < o.fadeAt;
+  const obsRadius = (o) => ({ boost: BOOST_LEN / 2 + 10, ice: ZONE_R, mud: ZONE_R, bumper: BUMPER_R, turntable: TURN_R, bar: BAR_HALF + 10, hole: HOLE_R }[o.type]);
+  const barAngle = (o) => o.angle + o.dir * BAR_W * (obsClock - o.spawnAt);
+
+  function spawnObstacle() {
+    const maxN = discs.length >= 10 ? OBS_MAX_CROWD : OBS_MAX;
+    if (obstacles.length >= maxN) return;
+    const pool = OBS_POOL[round].filter((t) => t !== lastObsType);
+    const type = pool[Math.floor(Math.random() * pool.length)];
+    const rad = obsRadius({ type });
+    // 在平台裡隨機挑 24 個點，要離每個圓盤至少 70、離其他障礙至少 120；選離最近的東西最遠的那個
+    let best = null;
+    for (let k = 0; k < 24; k++) {
+      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * Math.max(0, arenaR * 0.75 - rad * 0.5);
+      const x = AX + Math.cos(a) * rr, y = AY + Math.sin(a) * rr;
+      let near = Infinity;
+      for (const d of discs) if (d.alive && !d.falling) near = Math.min(near, Math.hypot(d.x - x, d.y - y) - d.r - rad * 0.6);
+      for (const o of obstacles) near = Math.min(near, Math.hypot(o.x - x, o.y - y) - obsRadius(o) - rad + 60);
+      if (near > -10 && (!best || near > best.near)) best = { x, y, near };
+    }
+    if (!best) return;
+    const o = { id: ++obsSeq, type, x: best.x, y: best.y, angle: Math.random() * Math.PI * 2, dir: Math.random() < 0.5 ? 1 : -1,
+      spawnAt: obsClock, activeAt: obsClock + OBS_WARN_S, fadeAt: obsClock + OBS_WARN_S + OBS_ACTIVE_S, endAt: obsClock + OBS_WARN_S + OBS_ACTIVE_S + OBS_FADE_S };
+    obstacles.push(o); lastObsType = type;
+    obsEvents.push({ id: o.id, type });
+    feed.push({ text: OBS_NAMES[type] + ' 出現了！', at: Date.now() });
+  }
+  const OBS_NAMES = { boost: '⚡ 加速帶', ice: '🧊 冰面', mud: '🟤 泥地', bumper: '🔴 彈跳柱', turntable: '🔄 轉盤', bar: '🪵 旋轉棒', hole: '🕳 洞' };
+
+  // 每一格：排程出現、移除過期的、被縮圈吃掉的提早消失
+  function tickObstacles(dt) {
+    obsClock += dt;
+    if (obsClock >= nextObsAt) { spawnObstacle(); nextObsAt = obsClock + OBS_GAP_S[0] + Math.random() * (OBS_GAP_S[1] - OBS_GAP_S[0]); }
+    for (const o of obstacles) {
+      if (o.fadeAt > obsClock && Math.hypot(o.x - AX, o.y - AY) + obsRadius(o) * 0.6 > arenaR) { o.fadeAt = Math.min(o.fadeAt, obsClock); o.endAt = Math.min(o.endAt, obsClock + OBS_FADE_S); }   // 縮圈吃到了：直接進入淡出
+    }
+    obstacles = obstacles.filter((o) => obsClock < o.endAt);
+  }
+
+  // 圓盤在區域型障礙（加速帶、冰、泥、轉盤、洞）裡的效果；回傳 false 表示這個圓盤掉進洞了
+  function applyZones(d, dt, now) {
+    d.dampMul = 1; d.accMul = 1; d.boostCd = Math.max(0, d.boostCd - dt);
+    for (const o of obstacles) {
+      if (!obsActive(o)) continue;
+      const dx = d.x - o.x, dy = d.y - o.y, dist = Math.hypot(dx, dy);
+      if (o.type === 'ice' && dist < ZONE_R) { d.dampMul = ICE_DAMP; d.accMul = ICE_ACC; }
+      else if (o.type === 'mud' && dist < ZONE_R) { d.dampMul = MUD_DAMP; d.accMul = MUD_ACC; }
+      else if (o.type === 'turntable' && dist < TURN_R && dist > 1) {
+        const k = (0.3 + 0.7 * dist / TURN_R) * TURN_A * dt / Math.sqrt(d.st.mass);          // 越靠邊越強；重的比較穩
+        d.vx += (-dy / dist) * o.dir * k; d.vy += (dx / dist) * o.dir * k;
+      } else if (o.type === 'boost' && d.boostCd <= 0) {
+        const c = Math.cos(o.angle), s = Math.sin(o.angle), lx = dx * c + dy * s, ly = -dx * s + dy * c;
+        if (Math.abs(lx) < BOOST_LEN / 2 && Math.abs(ly) < BOOST_W / 2) {
+          d.vx += c * BOOST_SPEED; d.vy += s * BOOST_SPEED; d.boostCd = BOOST_CD;
+          boostEvents.push({ x: d.x, y: d.y, dx: c, dy: s });
+        }
+      } else if (o.type === 'hole' && dist < HOLE_R - 6) { startFall(d, now); return false; }
+    }
+    return true;
+  }
+
+  // 實心障礙（彈跳柱、旋轉棒）：把圓盤推出去並反彈
+  function collideSolids(d) {
+    for (const o of obstacles) {
+      if (!obsActive(o) || d.falling) continue;
+      if (o.type === 'bumper') {
+        const dx = d.x - o.x, dy = d.y - o.y, dist = Math.hypot(dx, dy), min = d.r + BUMPER_R;
+        if (dist <= 0 || dist >= min) continue;
+        const nx = dx / dist, ny = dy / dist;
+        d.x = o.x + nx * min; d.y = o.y + ny * min;
+        let vn = d.vx * nx + d.vy * ny;
+        if (vn < 0) { d.vx -= (1 + BUMPER_E) * vn * nx; d.vy -= (1 + BUMPER_E) * vn * ny; }
+        vn = d.vx * nx + d.vy * ny;
+        const want = BUMPER_MIN / Math.sqrt(d.st.mass);
+        if (vn < want) { d.vx += (want - vn) * nx; d.vy += (want - vn) * ny; }
+        hitEvents.push({ x: o.x + nx * BUMPER_R, y: o.y + ny * BUMPER_R, power: 0.7 });
+      } else if (o.type === 'bar') {
+        const a = barAngle(o), c = Math.cos(a), s = Math.sin(a);
+        const px = d.x - o.x, py = d.y - o.y, t = Math.max(-BAR_HALF, Math.min(BAR_HALF, px * c + py * s));
+        const cx = c * t, cy = s * t, dx = px - cx, dy = py - cy, dist = Math.hypot(dx, dy), min = d.r + BAR_T;
+        if (dist >= min) continue;
+        const nx = dist > 0.001 ? dx / dist : -s, ny = dist > 0.001 ? dy / dist : c;
+        d.x = o.x + cx + nx * min; d.y = o.y + cy + ny * min;
+        const bvx = -cy * o.dir * BAR_W, bvy = cx * o.dir * BAR_W;                       // 棒子在這一點的移動速度
+        const vn = (d.vx - bvx) * nx + (d.vy - bvy) * ny;
+        if (vn < 0) { d.vx -= 1.8 * vn * nx; d.vy -= 1.8 * vn * ny; hitEvents.push({ x: o.x + cx + nx * BAR_T, y: o.y + cy + ny * BAR_T, power: Math.min(1, -vn / 400) }); }
+      }
+    }
+  }
+
   function stepPhysics(dt) {
     const now = Date.now();
     // 圓盤：搖桿方向 → 加速度；阻力讓它滑行；掉出去的倒數、死掉的復活
@@ -131,6 +244,7 @@ const SpinnerGame = (() => {
         if (round === 1 && !S(d.p).eliminated && d.respawnAt && now >= d.respawnAt) respawn(d, now);
         continue;
       }
+      if (!applyZones(d, dt, now)) continue;                    // 區域型障礙（掉進洞就不用往下算）
       // 操控：搖桿／傾斜方向 → 加速度（已經跑到自己的最高速度、還往同方向推就不再加速）
       if (d.p.online) {
         const inp = S(d.p).input;
@@ -139,7 +253,7 @@ const SpinnerGame = (() => {
         const mag = Math.hypot(mx, my);
         if (mag > 1) { mx /= mag; my /= mag; }
         const along = mag > 0 ? (d.vx * mx + d.vy * my) / mag : 0;
-        if (along < MAX_SPEED * d.st.speed) { d.vx += mx * ACCEL * d.st.accel * dt; d.vy += my * ACCEL * d.st.accel * dt; }
+        if (along < MAX_SPEED * d.st.speed) { d.vx += mx * ACCEL * d.st.accel * d.accMul * dt; d.vy += my * ACCEL * d.st.accel * d.accMul * dt; }
         // 衝撞：按一下往操控方向（沒推就往目前滑行方向）猛衝一段；冷卻中、或完全沒在動就不觸發
         if (inp.ramReq) {
           inp.ramReq = false;
@@ -157,12 +271,13 @@ const SpinnerGame = (() => {
       // 碗：離中心越遠、被拉回中心的力越大（線性）。往中心衝會越來越快，往外衝會越來越慢
       const rx = d.x - AX, ry = d.y - AY, rd = Math.hypot(rx, ry);
       if (rd > 0.001) { const pull = BOWL_G * (rd / ARENA_R) * dt; d.vx -= (rx / rd) * pull; d.vy -= (ry / rd) * pull; }
-      const drag = Math.exp(-DAMP * d.st.grip * dt);
+      const drag = Math.exp(-DAMP * d.st.grip * d.dampMul * dt);
       d.vx *= drag; d.vy *= drag;
       const sp = Math.hypot(d.vx, d.vy);
       const cap = d.ramT > 0 ? RAM_MAX_SPEED : HARD_MAX_SPEED;
       if (sp > cap) { d.vx *= cap / sp; d.vy *= cap / sp; }
       d.x += d.vx * dt; d.y += d.vy * dt;
+      collideSolids(d);
       d.spin += dt * (6 + sp / 40);                              // 圓盤花紋轉動的角度（只是好看）
     }
     // 圓盤互撞：等質量、彈性碰撞；速度快的一方把對方撞得更遠，並記下「最後撞到我的是誰」
@@ -192,6 +307,7 @@ const SpinnerGame = (() => {
       if (!d.alive || d.falling) continue;
       if (Math.hypot(d.x - AX, d.y - AY) > arenaR) startFall(d, now);
     }
+    tickObstacles(dt);
     tickRound(dt);
   }
 
@@ -273,6 +389,7 @@ const SpinnerGame = (() => {
     if (r === 2) discs.forEach((d) => { S(d.p).eliminated = false; });
     placeRing();
     feed = [];
+    obstacles = []; obsClock = 0; nextObsAt = OBS_FIRST_S; lastObsType = ''; obsEvents = []; boostEvents = [];
     subText = r === 1 ? `第 1 回合：計時賽（被撞出去 ${RESPAWN_MS / 1000} 秒後復活，比誰撞得多）` : `第 2 回合：淘汰賽（不復活，平台會縮小，剩最後 ${finalistTarget()} 位）`;
     $('spinnerPanel').classList.add('hidden');
     setPhase('countdown');
@@ -364,6 +481,7 @@ const SpinnerGame = (() => {
       this.platform = this.add.image(AX, AY, 'spinner-bowl').setDepth(1);
       this.pitRing = this.add.graphics().setDepth(1.2);            // 縮圈時蓋住被「吃掉」的外圍
       this.rim = this.add.graphics().setDepth(2);
+      this.obsSprites = new Map();                                  // 場中障礙的畫面（id → 物件），每個障礙畫一次，之後只改位置／透明度／旋轉
       // 文字：上方回合資訊、左邊擊殺榜、右邊訊息、中間大字
       const base = { fontSize: '30px', color: '#fff', fontStyle: 'bold', stroke: '#000', strokeThickness: 5 };
       this.titleText = this.add.text(AX, 40, '', base).setOrigin(0.5).setDepth(10);
@@ -378,6 +496,58 @@ const SpinnerGame = (() => {
       const em = this.add.particles(x, y, 'dot', { ...config, lifespan, quantity: n, emitting: false }).setDepth(4000);
       em.explode(n);
       this.time.delayedCall(lifespan + 200, () => em.destroy());
+    }
+
+    // 畫一個障礙（只在出現時畫一次）
+    makeObstacle(o) {
+      const g = this.add.graphics(), c = this.add.container(o.x, o.y, [g]);
+      if (o.type === 'boost') {
+        g.fillStyle(0x1e293b, 0.9).fillRoundedRect(-BOOST_LEN / 2, -BOOST_W / 2, BOOST_LEN, BOOST_W, 10).lineStyle(4, 0xfacc15).strokeRoundedRect(-BOOST_LEN / 2, -BOOST_W / 2, BOOST_LEN, BOOST_W, 10);
+        g.fillStyle(0xfacc15);
+        for (let i = -1; i <= 1; i++) g.fillTriangle(i * 40 - 12, -17, i * 40 + 18, 0, i * 40 - 12, 17);
+        c.setRotation(o.angle);
+      } else if (o.type === 'ice') {
+        g.fillStyle(0x93c5fd, 0.45).fillCircle(0, 0, ZONE_R).lineStyle(4, 0xe0f2fe, 0.9).strokeCircle(0, 0, ZONE_R);
+        g.lineStyle(3, 0xffffff, 0.7);
+        for (const a of [0.4, 1.5, 2.6, 3.9, 5.1]) g.lineBetween(Math.cos(a) * 12, Math.sin(a) * 12, Math.cos(a) * 55, Math.sin(a) * 55);
+      } else if (o.type === 'mud') {
+        g.fillStyle(0x78350f, 0.75).fillCircle(0, 0, ZONE_R).lineStyle(4, 0x451a03, 0.9).strokeCircle(0, 0, ZONE_R);
+        g.fillStyle(0x451a03, 0.8);
+        for (const [x, y, r] of [[-30, -20, 14], [25, -35, 10], [10, 25, 16], [-35, 30, 9], [40, 15, 8]]) g.fillCircle(x, y, r);
+      } else if (o.type === 'bumper') {
+        g.fillStyle(0xdc2626).fillCircle(0, 0, BUMPER_R).lineStyle(5, 0xffffff).strokeCircle(0, 0, BUMPER_R).fillStyle(0xfca5a5).fillCircle(-6, -6, 7);
+      } else if (o.type === 'turntable') {
+        g.fillStyle(0x475569, 0.6).fillCircle(0, 0, TURN_R).lineStyle(4, 0xcbd5e1, 0.9).strokeCircle(0, 0, TURN_R);
+        g.lineStyle(5, 0xf1f5f9, 0.9);
+        for (let i = 0; i < 3; i++) { const a = (i / 3) * Math.PI * 2; g.beginPath().arc(0, 0, TURN_R * 0.65, a, a + 1.2).strokePath(); g.fillStyle(0xf1f5f9).fillTriangle(Math.cos(a + 1.2) * TURN_R * 0.65 + 0, Math.sin(a + 1.2) * TURN_R * 0.65 + 0, Math.cos(a + 0.95) * TURN_R * 0.82, Math.sin(a + 0.95) * TURN_R * 0.82, Math.cos(a + 0.95) * TURN_R * 0.48, Math.sin(a + 0.95) * TURN_R * 0.48); }
+      } else if (o.type === 'bar') {
+        g.fillStyle(0xf59e0b).fillRoundedRect(-BAR_HALF - BAR_T, -BAR_T, (BAR_HALF + BAR_T) * 2, BAR_T * 2, BAR_T).lineStyle(3, 0x111111).strokeRoundedRect(-BAR_HALF - BAR_T, -BAR_T, (BAR_HALF + BAR_T) * 2, BAR_T * 2, BAR_T);
+        g.fillStyle(0x111111);
+        for (let i = -4; i <= 4; i++) g.fillRect(i * 24 - 6, -BAR_T + 2, 10, BAR_T * 2 - 4);
+        g.fillStyle(0x374151).fillCircle(0, 0, 16);
+      } else if (o.type === 'hole') {
+        g.fillStyle(0x000000).fillCircle(0, 0, HOLE_R).lineStyle(5, 0x7c3aed).strokeCircle(0, 0, HOLE_R).lineStyle(2, 0x4c1d95).strokeCircle(0, 0, HOLE_R * 0.6);
+      }
+      c.setDepth(o.type === 'bumper' || o.type === 'bar' || o.type === 'hole' ? 9 : 3);
+      return { c, o };
+    }
+
+    // 每格同步場中障礙：出現預告（閃爍）→ 生效 → 淡出
+    syncObstacles() {
+      const alive = new Set(obstacles.map((o) => o.id));
+      for (const [id, s] of this.obsSprites) if (!alive.has(id)) { s.c.destroy(); this.obsSprites.delete(id); }
+      for (const o of obstacles) {
+        let s = this.obsSprites.get(o.id);
+        if (!s) { s = this.makeObstacle(o); this.obsSprites.set(o.id, s); }
+        let alpha = 1;
+        if (obsClock < o.activeAt) alpha = Math.floor(obsClock * 6) % 2 ? 0.55 : 0.2;                  // 預告：閃爍、還沒有效果
+        else if (obsClock >= o.fadeAt) alpha = Math.max(0, 1 - (obsClock - o.fadeAt) / OBS_FADE_S) * (Math.floor(obsClock * 8) % 2 ? 1 : 0.5);   // 消失前閃爍淡出
+        else if (o.fadeAt - obsClock < 1.5) alpha = Math.floor(obsClock * 5) % 2 ? 1 : 0.7;             // 快消失了：提醒
+        s.c.setAlpha(alpha);
+        if (o.type === 'turntable') s.c.setRotation(o.dir * obsClock * 1.4);
+        if (o.type === 'bar') s.c.setRotation(barAngle(o));
+        if (o.type === 'boost') s.c.setRotation(o.angle);
+      }
     }
 
     // 依場上圓盤重建：圓盤（外圈 = 衣服顏色、花紋、中間是角色大頭）+ 名字 + 陰影
@@ -410,6 +580,9 @@ const SpinnerGame = (() => {
         while (this.acc >= STEP && Hub.phase === 'playing') { stepPhysics(STEP); this.acc -= STEP; }
       } else this.acc = 0;
 
+      this.syncObstacles();
+      for (const e of obsEvents.splice(0)) Sfx.play('obstacle');
+      for (const b of boostEvents.splice(0)) { Sfx.play('boost'); this.burst(b.x, b.y, 300, { speed: { min: 60, max: 200 }, angle: { min: Math.atan2(-b.dy, -b.dx) * 57.3 - 25, max: Math.atan2(-b.dy, -b.dx) * 57.3 + 25 }, scale: { start: 0.9, end: 0 }, tint: [0xfacc15, 0xfef08a, 0xffffff] }, 10); }
       // 撞擊：火花 + 輕微震動；掉下去：水花
       for (const h of hitEvents.splice(0)) {
         this.burst(h.x, h.y, 300, { speed: { min: 60, max: 120 + h.power * 220 }, scale: { start: 0.9, end: 0 }, tint: [0xffffff, 0xfacc15, 0xf97316] }, Math.round(6 + h.power * 10));
@@ -477,6 +650,7 @@ const SpinnerGame = (() => {
     discs = list.map(newDisc);
     version++;
     elimOrder = []; ramEvents = []; hitEvents = []; fallEvents = []; allOfflineSince = 0;
+    obstacles = []; obsClock = 0; nextObsAt = OBS_FIRST_S; obsEvents = []; boostEvents = [];
     Hub.game.scene.stop('spinner');
     Hub.game.scene.start('spinner');
     beginPrepare();
@@ -484,7 +658,7 @@ const SpinnerGame = (() => {
 
   function stop() {
     clearTimers();
-    discs = []; version++; centerText = ''; subText = ''; feed = [];
+    discs = []; version++; centerText = ''; subText = ''; feed = []; obstacles = []; obsEvents = []; boostEvents = [];
     players.forEach((p) => { delete p.spinner; });
     $('spinnerPanel').classList.add('hidden');
     $('hud').textContent = '';
@@ -537,9 +711,13 @@ const SpinnerGame = (() => {
     stateExtra: () => ({ round }),
     lobbyInfo: (n) => n ? `已選好 ${n} 人，個人混戰（共 2 回合，最多 ${MAX_PLAYERS} 人）` : '至少要有 1 人選好角色',
     // 測試用
-    _state: () => ({ phase: Hub.phase, round, arenaR, remainingMs, elapsedMs, elim: elimOrder.map((d) => d.p.id),
+    _state: () => ({ phase: Hub.phase, round, arenaR, remainingMs, elapsedMs, obsClock,
+      obstacles: obstacles.map((o) => ({ id: o.id, type: o.type, x: o.x, y: o.y, angle: o.type === 'bar' ? barAngle(o) : o.angle, dir: o.dir, active: obsActive(o), warn: obsClock < o.activeAt, leftS: o.fadeAt - obsClock, r: obsRadius(o) })), elim: elimOrder.map((d) => d.p.id),
       discs: discs.map((d) => ({ id: d.p.id, x: d.x, y: d.y, vx: d.vx, vy: d.vy, alive: d.alive, falling: d.falling, ramT: d.ramT, ramCd: d.ramCd, kills1: S(d.p).kills1, kills2: S(d.p).kills2, deaths: S(d.p).deaths, eliminated: S(d.p).eliminated, ghost: Date.now() < d.ghostUntil, finalRank: S(d.p).finalRank, roundRank: S(d.p).roundRank })) }),
     _set: (o) => {
+      if (o.noSpawn) nextObsAt = 1e9;
+      if (o.addObstacle) { const a = o.addObstacle; obstacles.push({ id: ++obsSeq, type: a.type, x: a.x, y: a.y, angle: a.angle || 0, dir: a.dir || 1, spawnAt: obsClock - OBS_WARN_S, activeAt: obsClock, fadeAt: obsClock + (a.activeS || OBS_ACTIVE_S), endAt: obsClock + (a.activeS || OBS_ACTIVE_S) + OBS_FADE_S }); }
+      if (o.clearObstacles) obstacles = [];
       if (o.disc) Object.assign(discs[o.disc.index], o.disc.set);
       if (o.remainingMs != null) remainingMs = o.remainingMs;
       if (o.elapsedMs != null) elapsedMs = o.elapsedMs;

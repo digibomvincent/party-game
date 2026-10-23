@@ -121,12 +121,14 @@ const Sfx = (() => {
     skill_sing: () => arp([76, 79, 83, 81, 79, 76, 72, 76], 0.16, { vol: 0.17, dur: 0.3 }),
     skill_giant: () => { tone({ type: 'sine', freq: 90, slide: 35, dur: 0.8, vol: 0.6 }); hiss({ dur: 0.6, vol: 0.3, filter: 'lowpass', f0: 800, f1: 100 }); },
     skill_slide: () => { hiss({ dur: 1.0, vol: 0.3, filter: 'bandpass', f0: 1800, f1: 400, q: 0.8 }); tone({ type: 'triangle', freq: 600, slide: 120, dur: 0.9, vol: 0.12 }); },
+    obstacle: () => { tone({ type: 'triangle', freq: 520, dur: 0.18, vol: 0.2 }); tone({ type: 'triangle', freq: 780, dur: 0.25, vol: 0.18, at: ctx.currentTime + 0.12 }); },
+    boost: () => { hiss({ dur: 0.3, vol: 0.28, filter: 'bandpass', f0: 600, f1: 4000, q: 1.5 }); tone({ type: 'square', freq: 300, slide: 900, dur: 0.2, vol: 0.12 }); },
     // 通用
     roundEnd: () => { arp([79, 74, 71, 67], 0.12, { vol: 0.17, dur: 0.3 }); },
     win: () => { arp([67, 72, 76, 79, 76, 79, 84], 0.11, { vol: 0.2, dur: 0.35 }); tone({ type: 'triangle', freq: mtof(48), dur: 1.2, vol: 0.25, at: ctx.currentTime + 0.3 }); },
   };
   // 同一種音效最短間隔（秒）：很多人同時按按鈕、撞在一起時，不要變成一團噪音
-  const MIN_GAP = { step: 0.045, hit: 0.05, kick: 0.08, dash: 0.1, ram: 0.1, fall: 0.1, respawn: 0.1, stumble: 0.1 };
+  const MIN_GAP = { boost: 0.12, obstacle: 0.3, step: 0.045, hit: 0.05, kick: 0.08, dash: 0.1, ram: 0.1, fall: 0.1, respawn: 0.1, stumble: 0.1 };
 
   function play(name, opts) {
     if (muted || !ensure() || ctx.state !== 'running' || !SFX[name]) return;

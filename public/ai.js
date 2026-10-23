@@ -150,6 +150,13 @@ const AI = (() => {
       want = jitter(unit(dx, dy), 0.5 * L.jit / a.skill);
       if (d < 150 && r < R * 0.6 && now > a.ramAt && Math.random() < L.ramP * a.skill) { dash = true; a.ramAt = now + 2400 + Math.random() * 1500; }
     }
+    if (L.dash) {                                                                   // 普通／困難：避開洞和快掉出去的地方；簡單的完全無視障礙
+      for (const o of S.obstacles || []) {
+        if (o.type !== 'hole' || o.warn) continue;
+        const hd = Math.hypot(me.x - o.x, me.y - o.y);
+        if (hd < 110) { const away = unit(me.x - o.x, me.y - o.y); want = unit(want.x + away.x * 2, want.y + away.y * 2); dash = false; }
+      }
+    }
     send({ mx: want.x * 0.9 * Math.max(L.speed, 0.7), my: want.y * 0.9 * Math.max(L.speed, 0.7), dash });
   }
 

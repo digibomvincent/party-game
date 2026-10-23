@@ -27,7 +27,7 @@ const AI = (() => {
     const taken = new Set([...Hub.players.values()].map((p) => p.name));
     const name = 'AI·' + (NAMES.find((n) => !taken.has('AI·' + n)) || ('機器人' + seq));
     const ch = Hub.characters[Math.floor(Math.random() * Hub.characters.length)];
-    const p = { id, name, online: true, charId: ch.id, color, photo: '', ai: { skill: 0.85 + Math.random() * 0.2, useUlt: Math.random() < lv().ult, wanderEnd: 0, skillDone: false, skillPos: 240 + Math.random() * 1800, side: 'L', nextTap: 0, neckUntil: 0, nextNeck: 0, ramAt: 0, dashAt: 0, pulse: false } };
+    const p = { id, name, online: true, charId: ch.id, color, photo: '', ai: { skill: 0.85 + Math.random() * 0.2, useUlt: Math.random() < lv().ult, wanderEnd: 0, skillN: 0, skillPos: 240 + Math.random() * 1800, side: 'L', nextTap: 0, neckUntil: 0, nextNeck: 0, ramAt: 0, dashAt: 0, pulse: false } };
     Hub.players.set(id, p);
     Hub.broadcastState();
     renderLobby();
@@ -62,7 +62,7 @@ const AI = (() => {
     if (Hub.phase !== 'racing' || !st || st.role !== 'racer' || st.heat !== g.stateExtra().heat || st.finished) return;
     if (now < a.nextTap) return;
     const L = lv();
-    if (!a.skillDone && st.skill && st.skill.state === 'ready' && st.pos >= a.skillPos) { a.skillDone = true; if (Math.random() < L.skillP) g.onInput(p.id, { side: 'skill' }); }
+    if (a.skillN < 3 && st.skill && st.skill.state === 'ready' && st.pos >= a.skillPos) { a.skillN++; a.skillPos += 300 + Math.random() * 600; if (Math.random() < L.skillP) g.onInput(p.id, { side: 'skill' }); }   // 最多想放三次
     a.nextTap = now + (L.tap[0] + Math.random() * (L.tap[1] - L.tap[0])) / a.skill;
     let side = a.side === 'L' ? 'R' : 'L';
     const r = Math.random();

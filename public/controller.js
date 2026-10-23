@@ -361,13 +361,16 @@ function render() {
 }
 
 // 角色技能鈕（跑步）：每人每場一次
-const SKILL_HINT = { boar: '9 秒加速、不會跌倒', sing: '其他人都不能動', giant: '變巨人、跑更快', slide: '跌倒往前滑' };
+const SKILL_FAIL_TEXT = { boar: '摔下來了！', sing: '嘔吐了…', giant: '縮小了…', slide: '滑錯邊了！' };   // 技能有 1/3 機率失敗
+const SKILL_HINT = { boar: '3 秒加速、不會跌倒', sing: '其他人都不能動', giant: '變巨人、跑更快', slide: '跌倒往前滑' };
 function updateSkillBtn(sk) {
   const b = $('btnSkill');
   b.classList.toggle('hidden', !sk);
   if (!sk) return;
   b.dataset.state = sk.state;
-  b.innerHTML = sk.state === 'used' ? `${sk.icon} ${sk.name}<small>已使用</small>` : sk.state === 'active' ? `${sk.icon} ${sk.name}中！` : `${sk.icon} ${sk.name}<small>${SKILL_HINT[sk.kind] || ''}</small>`;
+  b.innerHTML = sk.state === 'used' ? `${sk.icon} ${sk.name}<small>三次都用完了</small>`
+    : sk.state === 'active' ? (sk.fail ? `💥 ${SKILL_FAIL_TEXT[sk.kind] || '失敗了！'}` : `${sk.icon} ${sk.name}中！`)
+    : `${sk.icon} ${sk.name}（剩 ${sk.left} 次）<small>${SKILL_HINT[sk.kind] || ''}・有機率失敗</small>`;
 }
 $('btnSkill').addEventListener('pointerdown', (e) => {
   e.preventDefault();

@@ -116,6 +116,7 @@ const Sfx = (() => {
     shrink: () => tone({ type: 'sawtooth', freq: 140, slide: 90, dur: 0.6, vol: 0.12 }),
     ultStart: () => { tone({ type: 'sawtooth', freq: 120, slide: 900, dur: 0.9, vol: 0.2 }); hiss({ dur: 0.9, vol: 0.14, filter: 'bandpass', f0: 300, f1: 3500, q: 2, attack: 0.5 }); },
     ultFire: () => { tone({ type: 'sine', freq: 200, slide: 30, dur: 0.6, vol: 0.6 }); hiss({ dur: 0.7, vol: 0.4, filter: 'lowpass', f0: 5000, f1: 300 }); tone({ type: 'square', freq: 1800, slide: 400, dur: 0.4, vol: 0.12 }); },
+    skill_fail: () => { tone({ type: 'sawtooth', freq: 440, slide: 110, dur: 0.7, vol: 0.25 }); tone({ type: 'square', freq: 300, slide: 80, dur: 0.6, vol: 0.12, at: ctx.currentTime + 0.1 }); },
     skill_boar: () => { tone({ type: 'sawtooth', freq: 140, slide: 90, dur: 0.18, vol: 0.3 }); tone({ type: 'sawtooth', freq: 120, slide: 70, dur: 0.22, vol: 0.3, at: ctx.currentTime + 0.2 }); hiss({ dur: 0.5, vol: 0.15, filter: 'bandpass', f0: 400, f1: 1500, q: 1 }); },
     skill_sing: () => arp([76, 79, 83, 81, 79, 76, 72, 76], 0.16, { vol: 0.17, dur: 0.3 }),
     skill_giant: () => { tone({ type: 'sine', freq: 90, slide: 35, dur: 0.8, vol: 0.6 }); hiss({ dur: 0.6, vol: 0.3, filter: 'lowpass', f0: 800, f1: 100 }); },

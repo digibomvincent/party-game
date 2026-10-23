@@ -29,10 +29,15 @@ const RaceGame = (() => {
     c3: { kind: 'giant', name: '巨人化', icon: '🦣' },
     c4: { kind: 'slide', name: '往前滑', icon: '🛷' },
   };
-  const BOAR_MS = 9000, BOAR_MULT = 1.8;
-  const SING_MS = 6600;
-  const GIANT_MS = 12000, GIANT_MULT = 1.5;
-  const SLIDE_MS = 3600, SLIDE_DIST = 1350;
+  const BOAR_MS = 3000, BOAR_MULT = 1.8;
+  const SING_MS = 2200;
+  const GIANT_MS = 4000, GIANT_MULT = 1.5;
+  const SLIDE_MS = 1200, SLIDE_DIST = 450;
+  // 技能可以用 SKILL_USES 次（要等上一次效果結束才能再用），每次有 SKILL_FAIL 的機率失敗：
+  //   騎山豬 → 摔下來（跌倒 FALL_MS）；唱歌 → 嘔吐（自己動彈不得 SING_MS，其他人不受影響）；
+  //   巨人化 → 縮小化（GIANT_MS 內縮成一半大、每步只前進 ×SHRINK_MULT）；往前滑 → 滑錯邊（往後滑 SLIDE_DIST）
+  const SKILL_USES = 3, SKILL_FAIL = 0.33, SHRINK_MULT = 0.6;
+  let forceFail = null;            // 測試用：true／false 固定成功失敗，null = 照機率
   // 畫面排版（Phaser 畫布大小 1280x720）
   const CANVAS_W = 1280, CANVAS_H = 720;
   const LANE_COUNT = PLAYERS_PER_HEAT;
@@ -46,7 +51,7 @@ const RaceGame = (() => {
     heat: null, lane: 0, pos: 0,
     lastSide: null, stunUntil: 0, slowUntil: 0, fallAt: 0, hopAt: 0,   // 連按 / 同時按的懲罰狀態
     finished: false, finishTime: null, heatRank: null, overallRank: null,
-    skillUsed: false, skillKind: null, skillAt: 0, skillUntil: 0, frozenUntil: 0, slideFrom: 0,   // 角色技能狀態（時間都是 Date.now()）
+    skillUses: 0, skillFail: false, skillKind: null, skillAt: 0, skillUntil: 0, frozenUntil: 0, slideFrom: 0, slideDir: 1,   // 角色技能狀態（時間都是 Date.now()）
   });
   const S = (p) => p.race || (p.race = newState());
 
@@ -182,25 +187,26 @@ const RaceGame = (() => {
       const frozen = now < st.frozenUntil;
       if (st.skillAt !== s.lastSkillAt) {                          // 剛發動：飄出技能圖示、畫面震一下
         s.lastSkillAt = st.skillAt;
-        if (sk) { this.fx(s, sk.icon); this.fx(s, sk.icon); }
+        if (sk) { this.fx(s, st.skillFail ? '💥' : sk.icon); this.fx(s, st.skillFail ? '💢' : sk.icon); }
         if (kind === 'giant') this.cameras.main.shake(300, 0.006);
       }
-      s.k += ((kind === 'giant' ? 2 : 1) - s.k) * 0.2;              // 兩倍大：用平滑過渡
-      s.ride += ((kind === 'boar' ? 26 : 0) - s.ride) * 0.3;       // 騎在豬背上：角色抬高
+      const fail = st.skillFail;
+      s.k += ((kind === 'giant' ? (fail ? 0.5 : 2) : 1) - s.k) * 0.2;   // 兩倍大（失敗是縮小一半）：用平滑過渡
+      s.ride += ((kind === 'boar' && !fail ? 26 : 0) - s.ride) * 0.3;       // 騎在豬背上：角色抬高
       s.c.setScale(CHAR_SCALE * s.k).setDepth(kind === 'giant' ? 8 : 0);
       const foot = (CharRender.BODY_FRAME_H / 2) * CharRender.BODY_SCALE * CHAR_SCALE;
       s.skillY = -(s.k - 1) * foot - s.ride;                       // 放大後腳要維持踩在跑道上
-      s.boar.setVisible(kind === 'boar').setPosition(s.c.x, s.baseY + foot + 4);
-      if (kind === 'boar') s.boar.y += Math.abs(Math.sin(now / 70)) * -6;                   // 豬一跳一跳
-      s.badge.setText(kind === 'sing' ? '🎤' : frozen ? '💤' : '').setPosition(s.c.x, s.baseY - 118 - (s.k - 1) * 70 + Math.sin(now / 150) * 4);
-      if (frozen) s.body.setTint(0x777777); else s.body.clearTint();
+      s.boar.setVisible(kind === 'boar').setPosition(s.c.x + (fail ? 50 : 0), s.baseY + foot + 4).setAngle(fail ? 75 : 0);   // 失敗：豬把人甩下來、自己倒在旁邊
+      if (kind === 'boar' && !fail) s.boar.y += Math.abs(Math.sin(now / 70)) * -6;                   // 豬一跳一跳
+      s.badge.setText(kind === 'sing' ? (fail ? '🤮' : '🎤') : kind === 'giant' && fail ? '🔬' : frozen ? '💤' : '').setPosition(s.c.x, s.baseY - 118 - (s.k - 1) * 70 + Math.sin(now / 150) * 4);
+      if (kind === 'sing' && fail) s.body.setTint(0x88cc66); else if (frozen) s.body.setTint(0x777777); else s.body.clearTint();
       s.frozen = frozen;
-      if (kind === 'sing' && now > s.nextFx) { s.nextFx = now + 220; this.fx(s, ['♪', '♫', '🎵'][Math.floor(now / 220) % 3]); }
+      if (kind === 'sing' && now > s.nextFx) { s.nextFx = now + 220; this.fx(s, fail ? '🤢' : ['♪', '♫', '🎵'][Math.floor(now / 220) % 3]); }
       // 往前滑：整個人趴下，後面噴煙
       s.sliding = kind === 'slide';
       if (s.sliding) {
         s.c.angle += (82 - s.c.angle) * 0.4; s.fallY += (24 - s.fallY) * 0.4;
-        if (now > s.nextFx) { s.nextFx = now + 110; this.fx({ c: { x: s.c.x - 40 }, baseY: s.baseY + 40 }, '💨'); }
+        if (now > s.nextFx) { s.nextFx = now + 110; this.fx({ c: { x: s.c.x - 40 * st.slideDir }, baseY: s.baseY + 40 }, fail ? '↩️' : '💨'); }
       } else if (s.wasSliding) {
         s.wasSliding = false;
         this.tweens.add({ targets: s.c, angle: 0, duration: 220 });
@@ -331,23 +337,29 @@ const RaceGame = (() => {
   // ---------- 角色技能 ----------
   const skillOf = (p) => SKILLS[p.charId] || null;
   const active = (p, kind, now) => S(p).skillKind === kind && now < S(p).skillUntil;     // 這個技能現在正在發動嗎
-  const immune = (p, now) => active(p, 'boar', now) || active(p, 'giant', now);         // 騎山豬／巨人：不會跌倒、不被連按懲罰
+  const immune = (p, now) => !S(p).skillFail && (active(p, 'boar', now) || active(p, 'giant', now));   // 騎山豬／巨人（成功的那次）：不會跌倒、不被連按懲罰
 
   function useSkill(p, now) {
     const sk = skillOf(p), st = S(p);
-    if (!sk || st.skillUsed || st.finished || now < st.stunUntil || now < st.frozenUntil) return;
-    st.skillUsed = true; st.skillKind = sk.kind; st.skillAt = now; st.lastSide = null;
-    const ms = { boar: BOAR_MS, sing: SING_MS, giant: GIANT_MS, slide: SLIDE_MS }[sk.kind];
+    if (!sk || st.skillUses >= SKILL_USES || st.finished || now < st.stunUntil || now < st.frozenUntil || now < st.skillUntil) return;
+    st.skillUses++; st.skillKind = sk.kind; st.skillAt = now; st.lastSide = null;
+    const fail = forceFail !== null ? forceFail : Math.random() < SKILL_FAIL;
+    st.skillFail = fail;
+    let ms = { boar: BOAR_MS, sing: SING_MS, giant: GIANT_MS, slide: SLIDE_MS }[sk.kind];
+    if (fail) {
+      if (sk.kind === 'boar') { ms = 1200; st.stunUntil = now + FALL_MS; st.fallAt = now; }      // 摔下來：跌倒
+      if (sk.kind === 'sing') st.frozenUntil = now + SING_MS;                                    // 嘔吐：自己動彈不得
+    }
     st.skillUntil = now + ms;
-    if (sk.kind === 'sing') {                                    // 全組其他人（沒跑完、不是發動中的巨人）被歌聲定住
+    if (sk.kind === 'sing' && !fail) {                                    // 全組其他人（沒跑完、不是發動中的巨人）被歌聲定住
       for (const o of heatPlayers()) {
         if (o === p || S(o).finished || active(o, 'giant', now)) continue;
         S(o).frozenUntil = now + SING_MS;
         sendStatus(o); later(() => sendStatus(o), SING_MS + 60);
       }
     }
-    if (sk.kind === 'slide') { st.slideFrom = st.pos; st.slideDone = false; }
-    Sfx.play('skill_' + sk.kind);
+    if (sk.kind === 'slide') { st.slideFrom = st.pos; st.slideDone = false; st.slideDir = fail ? -1 : 1; }
+    Sfx.play(fail ? 'skill_fail' : 'skill_' + sk.kind);
     sendStatus(p); later(() => sendStatus(p), ms + 60);
   }
 
@@ -359,7 +371,7 @@ const RaceGame = (() => {
       const st = S(p);
       if (st.skillKind !== 'slide' || st.slideDone || st.finished) continue;
       const u = Math.min(1, (now - st.skillAt) / SLIDE_MS);
-      if (advance(p, Math.max(st.pos, st.slideFrom + SLIDE_DIST * (1 - (1 - u) * (1 - u))), now)) continue;   // 滑到終點了
+      if (advance(p, Math.max(0, st.slideFrom + st.slideDir * SLIDE_DIST * (1 - (1 - u) * (1 - u))), now)) continue;   // 滑到終點了
       if (u >= 1) st.slideDone = true;
     }
   }
@@ -402,7 +414,7 @@ const RaceGame = (() => {
       return;
     }
     st.lastSide = side;
-    const mult = active(p, 'boar', now) ? BOAR_MULT : active(p, 'giant', now) ? GIANT_MULT : 1;
+    const mult = active(p, 'boar', now) && !st.skillFail ? BOAR_MULT : active(p, 'giant', now) ? (st.skillFail ? SHRINK_MULT : GIANT_MULT) : 1;
     const step = STEP_DISTANCE * mult * (now < st.slowUntil && !safe ? SLOW_FACTOR : 1);
     if (!advance(p, st.pos + step, now)) Sfx.play('step');
   }
@@ -490,7 +502,8 @@ const RaceGame = (() => {
       pos: S(p).pos,
       frozen: Date.now() < S(p).frozenUntil,                         // 被唱歌定住
       skill: skillOf(p) ? { kind: skillOf(p).kind, name: skillOf(p).name, icon: skillOf(p).icon,
-        state: S(p).skillUsed ? (Date.now() < S(p).skillUntil ? 'active' : 'used') : 'ready' } : null,
+        state: Date.now() < S(p).skillUntil ? 'active' : S(p).skillUses >= SKILL_USES ? 'used' : 'ready',
+        left: SKILL_USES - S(p).skillUses, fail: S(p).skillFail && Date.now() < S(p).skillUntil } : null,
     }),
     stateExtra: () => ({ heat: currentHeat + 1, totalHeats: heats.length }),   // 廣播給所有手機的 game:state 附加欄位
     lobbyInfo: (n) => {                                                        // 大廳顯示：幾人、分幾組
@@ -499,6 +512,7 @@ const RaceGame = (() => {
     },
     // 測試用
     _endHeat: () => endHeat(),
+    _forceFail: (v) => { forceFail = v; },
     _state: () => ({ heats, currentHeat }),
   };
 })();

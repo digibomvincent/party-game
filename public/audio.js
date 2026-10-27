@@ -123,6 +123,8 @@ const Sfx = (() => {
     skill_slide: () => { hiss({ dur: 1.0, vol: 0.3, filter: 'bandpass', f0: 1800, f1: 400, q: 0.8 }); tone({ type: 'triangle', freq: 600, slide: 120, dur: 0.9, vol: 0.12 }); },
     obstacle: () => { tone({ type: 'triangle', freq: 520, dur: 0.18, vol: 0.2 }); tone({ type: 'triangle', freq: 780, dur: 0.25, vol: 0.18, at: ctx.currentTime + 0.12 }); },
     boost: () => { hiss({ dur: 0.3, vol: 0.28, filter: 'bandpass', f0: 600, f1: 4000, q: 1.5 }); tone({ type: 'square', freq: 300, slide: 900, dur: 0.2, vol: 0.12 }); },
+    correct: () => arp([72, 76, 79, 84], 0.08, { vol: 0.17, dur: 0.25 }),
+    wrong: () => { tone({ type: 'sawtooth', freq: 220, slide: 110, dur: 0.5, vol: 0.22 }); },
     // 通用
     roundEnd: () => { arp([79, 74, 71, 67], 0.12, { vol: 0.17, dur: 0.3 }); },
     win: () => { arp([67, 72, 76, 79, 76, 79, 84], 0.11, { vol: 0.2, dur: 0.35 }); tone({ type: 'triangle', freq: mtof(48), dur: 1.2, vol: 0.25, at: ctx.currentTime + 0.3 }); },
@@ -142,6 +144,11 @@ const Sfx = (() => {
   // 每首：bpm、tonic（MIDI）、scale（半音間隔）、bass（每小節低音的音階度數）、lead（每小節 16 格，數字 = 音階度數，. = 休止）、drums（k 大鼓 s 小鼓 h 腳踏鈸）
   const MAJOR = [0, 2, 4, 5, 7, 9, 11], MINOR = [0, 2, 3, 5, 7, 8, 10], HARM = [0, 2, 3, 5, 7, 8, 11];
   const TRACKS = {
+    quiz: {
+      bpm: 112, tonic: 62, scale: MAJOR, bass: [0, 4, 5, 3], vol: { bass: 0.45, pad: 0.3, lead: 0.4, drums: 0.5 },
+      lead: ['0 . 2 . 4 . 2 . 0 . 2 . 4 . 7 .', '4 . 5 . 7 . 5 . 4 . 2 . 4 . . .', '5 . 7 . 9 . 7 . 5 . 4 . 2 . 4 .', '4 . . 2 . 0 . . 2 . 4 . 2 . . .'],
+      drums: { k: 'x...x...x...x...', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.' },
+    },
     lobby: {
       bpm: 100, tonic: 60, scale: MAJOR, bass: [0, 5, 3, 4], vol: { bass: 0.5, pad: 0.35, lead: 0.5, drums: 0.55 },
       lead: ['4 . . 2 . 4 . 7 . . 4 . 2 . . .', '5 . . 7 . 5 . 9 . . 7 . 5 . . .', '7 . . 5 . 3 . 5 . . 7 . 5 . . .', '4 . . 6 . 8 . 6 . . 4 . 1 . . .'],

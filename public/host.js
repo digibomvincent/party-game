@@ -30,6 +30,7 @@ const GAME_LIST = [
   { id: 'race',   icon: '🏃', name: '跑步', desc: '左右交替連按，衝向終點！', enabled: true },
   { id: 'soccer', icon: '⚽', name: '足球', desc: '搖桿跑位，用大頭把球頂進球門', enabled: true,  badge: '測試中' },
   { id: 'spinner', icon: '🌀', name: '陀螺大戰', desc: '操控圓盤互撞，把別人撞出平台', enabled: true,  badge: '開發中' },
+  { id: 'quiz', icon: '❓', name: '猜猜他是誰', desc: '黑色剪影搶答，答對越快分數越高', enabled: true,  badge: '新' },
 ];
 let selectedGame = 'race';   // 大廳目前選的遊戲
 
@@ -84,7 +85,7 @@ function setPhase(next) {
   if (Hub.currentGame && Hub.currentGame.onPhase) Hub.currentGame.onPhase(next);
   sendAllStatus();
   // 配樂：大廳與各種結算畫面放輕鬆的；比賽中放該遊戲的曲子
-  const calm = next === 'lobby' || next === 'result' || next === 'roundEnd' || next === 'heatResult' || next === 'prepare';
+  const calm = next === 'lobby' || next === 'result' || next === 'roundEnd' || next === 'heatResult' || next === 'prepare' || next === 'scores';
   Sfx.music(calm || !Hub.currentGameId ? 'lobby' : Hub.currentGameId);
   if (next === 'result') Sfx.play('win'); else if (next === 'roundEnd' || next === 'heatResult') Sfx.play('roundEnd');
 }

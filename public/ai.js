@@ -8,9 +8,9 @@ const AI = (() => {
   // 難度：tap 跑步每下間隔(ms)；mis 手滑機率；jit 方向誤差倍率；neckP 頭槌機率倍率；think 足球／陀螺幾 ms 決定一次；ramP 衝撞機率；dash 會不會衝刺；ult 使用必殺技的機率
   const LEVELS = {
     // speed 移動力道；wander 亂晃（朝隨機方向走、或發呆站著）的機率；aim 頭槌瞄準誤差（弧度，越大越不準）；edge 陀螺走到平台多外面才想到要回中間
-    easy:   { name: '簡單', skillP: 0.4, tap: [480, 850], mis: 0.25, jit: 3.0, neckP: 0.12, think: 380, ramP: 0.02, dash: false, ult: 0, speed: 0.5, wander: 0.55, aim: 2.2, edge: 0.93 },
-    normal: { name: '普通', skillP: 0.85, tap: [200, 290], mis: 0.05, jit: 1.2, neckP: 0.45, think: 130, ramP: 0.25, dash: true, ult: 0.6, speed: 0.85, wander: 0.1, aim: 0.4, edge: 0.75 },
-    hard:   { name: '困難', skillP: 1, tap: [150, 230], mis: 0.03, jit: 0.7, neckP: 0.6, think: 60, ramP: 0.4, dash: true, ult: 1, speed: 1, wander: 0.02, aim: 0.15, edge: 0.7 },
+    easy:   { name: '簡單', skillP: 0.4, acc: 0.35, qthink: [4000, 12000], tap: [480, 850], mis: 0.25, jit: 3.0, neckP: 0.12, think: 380, ramP: 0.02, dash: false, ult: 0, speed: 0.5, wander: 0.55, aim: 2.2, edge: 0.93 },
+    normal: { name: '普通', skillP: 0.85, acc: 0.65, qthink: [2500, 8000], tap: [200, 290], mis: 0.05, jit: 1.2, neckP: 0.45, think: 130, ramP: 0.25, dash: true, ult: 0.6, speed: 0.85, wander: 0.1, aim: 0.4, edge: 0.75 },
+    hard:   { name: '困難', skillP: 1, acc: 0.92, qthink: [1200, 5000], tap: [150, 230], mis: 0.03, jit: 0.7, neckP: 0.6, think: 60, ramP: 0.4, dash: true, ult: 1, speed: 1, wander: 0.02, aim: 0.15, edge: 0.7 },
   };
   let level = 'easy';
   const lv = () => LEVELS[level];
@@ -160,6 +160,20 @@ const AI = (() => {
     send({ mx: want.x * 0.9 * Math.max(L.speed, 0.7), my: want.y * 0.9 * Math.max(L.speed, 0.7), dash });
   }
 
+  // ---------- 猜猜他是誰 ----------
+  // acc 答對機率、think 作答時間範圍（ms）
+  function quizTick(p, now, S) {
+    const a = p.ai, L = lv();
+    if (S.phase !== 'question') { a.quizQ = -1; return; }
+    if (a.quizQ !== S.idx) {                                                       // 新的一題：決定這個 AI 這題什麼時候答、選哪個
+      a.quizQ = S.idx;
+      a.quizAt = now + L.qthink[0] + Math.random() * (L.qthink[1] - L.qthink[0]);
+      const wrong = [0, 1, 2, 3].filter((i) => i !== S.answer);
+      a.quizPick = Math.random() < L.acc ? S.answer : wrong[Math.floor(Math.random() * 3)];
+    }
+    if (now >= a.quizAt && a.quizAt > 0) { a.quizAt = 0; Hub.currentGame.onInput(p.id, { mx: 0, my: 0, ans: a.quizPick }); }
+  }
+
   // ---------- 主迴圈 ----------
   let last = 0;
   setInterval(() => {
@@ -173,10 +187,12 @@ const AI = (() => {
       let S = null;
       if (id === 'soccer') S = Hub.games.soccer._state();
       else if (id === 'spinner') S = Hub.games.spinner._state();
+      else if (id === 'quiz') S = Hub.games.quiz._state();
       for (const p of ais) {
         if (id === 'race') raceTick(p, now);
         else if (id === 'soccer') soccerTick(p, now, S);
         else if (id === 'spinner') spinnerTick(p, now, S);
+        else if (id === 'quiz') quizTick(p, now, S);
       }
     } catch (e) { console.error('AI error', e); }
   }, 40);

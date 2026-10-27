@@ -268,6 +268,7 @@ $('repickBtn').onclick = () => { repicking = true; pickStep = 'char'; pickMsg = 
 function setScreen(msg, btnText, enabled, color) {
   $('msg').innerHTML = `<div>${msg}</div>`;
   $('pad').classList.toggle('hidden', enabled !== true);
+  $('quizPad').classList.toggle('hidden', enabled !== 'quiz');
   $('soccerPad').classList.toggle('hidden', enabled !== 'stick');
   $('readyPad').classList.toggle('hidden', enabled !== 'ready');
   $('gyroPad').classList.toggle('hidden', enabled !== 'gyro');
@@ -333,6 +334,25 @@ function render() {
     }
     const hint = phase === 'countdown' ? '預備…' : phase === 'goal' ? '進球！' : '頭槌把球打進對方球門';
     setScreen(`${board}<br>你是 ${team}　<small>${hint}</small>`, '', 'stick', color); return;
+  }
+  if (gameState.game === 'quiz') {     // 猜猜他是誰：A B C D 四個大按鈕
+    const ph = phase, ans = me.answered, opts = me.options || [];
+    const btns = [...$('quizPad').children];
+    btns.forEach((b, i) => {
+      b.disabled = ph !== 'question' || ans;
+      b.classList.toggle('chosen', ans && me.choice === i);
+      b.classList.toggle('right', me.answer === i && (ph === 'reveal' || ph === 'scores'));
+      b.querySelector('b').textContent = opts[i] || 'ABCD'[i];
+    });
+    const head = `第 ${me.q || 1} / ${me.total || 1} 題　<b>${me.score || 0}</b> 分`;
+    let msg;
+    if (ph === 'result') msg = `最終第 <b>${me.rank}</b> 名<br><small>${me.score} 分</small>`;
+    else if (ph === 'reveal' || ph === 'scores') msg = me.correct ? `✅ 答對了！<b>+${me.gain}</b><br><small>${head}　第 ${me.rank} 名${me.streak > 1 ? `　🔥 連對 ${me.streak}` : ''}</small>` : `${ans ? '❌ 答錯了' : '⏰ 沒答到'}<br><small>${head}　第 ${me.rank} 名</small>`;
+    else if (ph === 'quizIntro') msg = `準備！<br><small>${head}</small>`;
+    else msg = ans ? `已送出，等其他人…<br><small>${head}</small>` : `這是誰？<br><small>${head}</small>`;
+    setScreen(msg, '', ph === 'result' || ph === 'lobby' ? false : 'quiz', color);
+    if (ph === 'result') $('quizPad').classList.add('hidden');
+    return;
   }
   if (gameState.game === 'spinner') {  // 陀螺大戰：傾斜手機（陀螺儀）或搖桿
     const rd = me.round || gameState.round || 1;
@@ -674,6 +694,10 @@ const GYRO_FAIL_NOTE = {
 };
 function sendReady() { socket.emit('input', { mx: 0, my: 0, ready: true, mode: ctrlMode }); }
 
+// 猜猜他是誰：按下選項就送出（只算第一次，host 會鎖定）
+for (const b of $('quizPad').children) {
+  b.addEventListener('pointerdown', (e) => { e.preventDefault(); if (b.disabled) return; socket.emit('input', { mx: 0, my: 0, ans: Number(b.dataset.i) }); vibrate([30]); });
+}
 $('btnReadyGyro').addEventListener('click', async () => {
   const r = await enableGyro();               // 這一行在使用者點擊的事件裡，iPhone 才肯跳授權視窗
   if (r.ok) { calibrate(); setCtrlMode('gyro'); gyroNote = ''; }

@@ -72,6 +72,31 @@
     /* 右上角小提示：目前第幾組 */
     #homeBtn { position: fixed; top: 12px; right: 16px; font-size: 18px; padding: 8px 18px; border-radius: 10px; background: #334155; color: #fff; z-index: 5; }
     #hud { position: fixed; top: 14px; left: 20px; font-size: 28px; font-weight: bold; pointer-events: none; }
+    /* 猜猜他是誰 */
+    .quiz { justify-content: flex-start; padding: 16px 28px 64px; gap: 12px; z-index: 3; }
+    .quiz .hidden { display: none !important; }
+    #qTop { width: 100%; max-width: 1180px; display: flex; align-items: center; gap: 18px; font-size: 30px; font-weight: bold; }
+    #qTimer { flex: 1; height: 18px; border-radius: 9px; background: #26405a; overflow: hidden; }
+    #qBar { display: block; height: 100%; width: 100%; background: #22c55e; transition: width .1s linear, background .3s; }
+    #qBar.low { background: #ef4444; }
+    #qSec { width: 2.2em; text-align: right; }
+    #qStage { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
+    #qImgBox { position: relative; height: 100%; max-width: 100%; aspect-ratio: auto; display: flex; }
+    #qImgBox img { max-height: 100%; max-width: 100%; display: block; border-radius: 14px; }
+    #qImgBox #qMask { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; object-fit: fill; pointer-events: none; }
+    #qBanner { position: absolute; left: 0; right: 0; bottom: 14px; margin: 0 auto; width: fit-content; max-width: 90%; padding: 8px 26px; border-radius: 14px;
+      background: rgba(0, 0, 0, .72); font-size: 40px; font-weight: bold; opacity: 0; transition: opacity .3s; }
+    #qBanner.show { opacity: 1; }
+    #qOpts { width: 100%; max-width: 1180px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .qo { background: var(--c); border-radius: 16px; padding: 14px 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 26px; transition: opacity .3s, transform .3s; }
+    .qo .sh { font-size: 34px; line-height: 1; }
+    .qo b { font-size: 36px; }
+    .qo .cnt { font-size: 22px; opacity: .9; }
+    .qo.dim { opacity: .28; }
+    .qo.right { transform: scale(1.06); box-shadow: 0 0 0 6px #fff; }
+    #qBoard, #qResult { margin: auto; text-align: center; }
+    #qBoard ol, #qResult ol { margin-left: auto; margin-right: auto; }
+    #qBoardList em { color: #4ade80; font-style: normal; }
     /* 右下角：音效開關與音量；還沒解鎖（沒點過畫面）時會閃一下提醒 */
     .aibar { float: right; display: flex; gap: 8px; }
     .aibar button { font-size: 18px; padding: 6px 16px; background: #334155; color: #fff; border-radius: 10px; }
@@ -157,6 +182,18 @@
     </div>
   </div>
 
+  <!-- 猜猜他是誰：搶答 -->
+  <div id="quizPanel" class="panel quiz hidden">
+    <div id="qTop"><span id="qNum"></span><div id="qTimer"><i id="qBar"></i></div><span id="qSec"></span></div>
+    <div id="qStage">
+      <div id="qImgBox"><img id="qImg" alt=""><img id="qMask" alt=""><div id="qBanner"></div></div>
+    </div>
+    <div id="qOpts"></div>
+    <div id="qBoard" class="hidden"><h1 id="qBoardTitle"></h1><ol id="qBoardList" class="rank"></ol></div>
+    <div id="qResult" class="hidden"><h1>🏆 最終排名</h1><ol id="qResultList" class="rank"></ol>
+      <div style="display:flex;gap:20px;justify-content:center"><button id="qAgainBtn">再來一場</button><button id="qLobbyBtn" style="background:#3b82f6;color:#fff">回遊戲大廳</button></div></div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
@@ -168,5 +205,6 @@
   <script src="games/race.js"></script>
   <script src="games/soccer.js"></script>
   <script src="games/spinner.js"></script>
+  <script src="games/quiz.js"></script>
 </body>
 </html>

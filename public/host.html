@@ -72,6 +72,21 @@
     /* 右上角小提示：目前第幾組 */
     #homeBtn { position: fixed; top: 12px; right: 16px; font-size: 18px; padding: 8px 18px; border-radius: 10px; background: #334155; color: #fff; z-index: 5; }
     #hud { position: fixed; top: 14px; left: 20px; font-size: 28px; font-weight: bold; pointer-events: none; }
+    /* 計分條（遊戲結束時出現在畫面下方）與累計排名 */
+    #scoreBar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 35; display: flex; align-items: center; gap: 14px; max-width: 94vw;
+      background: rgba(15, 23, 42, .95); border: 3px solid #f59e0b; border-radius: 16px; padding: 10px 18px; font-size: 22px; }
+    #scoreBar.hidden { display: none; }
+    #scoreBar button { font-size: 22px; padding: 8px 22px; white-space: nowrap; }
+    #scoreNo { background: #475569; color: #fff; }
+    #standList { list-style: none; padding: 0; margin: 0 0 18px; width: 100%; max-width: 980px; max-height: 62vh; overflow-y: auto; text-align: left; }
+    #standList li { display: grid; grid-template-columns: 56px 220px 110px 1fr; align-items: center; gap: 10px; background: #1f3347; border-left: 8px solid var(--c, #888);
+      border-radius: 12px; padding: 8px 14px; margin-bottom: 8px; font-size: 26px; }
+    #standList .no { font-size: 30px; text-align: center; }
+    #standList .tot { font-weight: bold; color: #fde68a; text-align: right; }
+    #standList .dt { display: flex; flex-wrap: wrap; gap: 6px; font-size: 15px; color: #9fb3c8; }
+    #standList .gp { background: #14222f; padding: 2px 9px; border-radius: 8px; }
+    #standList .gp b { color: #fff; }
+    #standList .empty { display: block; text-align: center; color: #7b8a99; background: none; }
     /* 猜猜他是誰 */
     .quiz { justify-content: flex-start; padding: 16px 28px 64px; gap: 12px; z-index: 3; }
     .quiz .hidden { display: none !important; }
@@ -124,6 +139,7 @@
         <div id="gameList"></div>
         <div class="game-foot">
           <button id="startBtn" disabled>開始</button>
+          <button id="standBtn" type="button" style="background:#f59e0b;color:#1f1300">🏆 結算排名</button>
           <div id="info" class="hint">用手機掃 QR Code 加入</div>
         </div>
       </section>
@@ -194,6 +210,16 @@
       <div style="display:flex;gap:20px;justify-content:center"><button id="qAgainBtn">再來一場</button><button id="qLobbyBtn" style="background:#3b82f6;color:#fff">回遊戲大廳</button></div></div>
   </div>
 
+  <!-- 計分：每個遊戲結束時主持人選擇 [計分] 或 [試玩不計分] -->
+  <div id="scoreBar" class="hidden"><span id="scoreMsg"></span><button id="scoreYes">✔ 計分</button><button id="scoreNo">🎮 試玩不計分</button></div>
+  <!-- 結算排名 -->
+  <div id="standPanel" class="panel hidden" style="z-index:40">
+    <h1>🏆 累計排名</h1>
+    <div id="standNote" class="next-info"></div>
+    <ol id="standList"></ol>
+    <div style="display:flex;gap:20px;justify-content:center"><button id="standClose">關閉</button><button id="standReset" style="background:#475569;color:#fff">重新開始賽季</button></div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
@@ -201,6 +227,7 @@
   <script src="char-render.js"></script>
   <script src="audio.js"></script>
   <script src="host.js"></script>
+  <script src="scoring.js"></script>
   <script src="ai.js"></script>
   <script src="games/race.js"></script>
   <script src="games/soccer.js"></script>

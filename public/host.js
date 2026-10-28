@@ -84,6 +84,7 @@ function setPhase(next) {
   $('homeBtn').classList.toggle('hidden', next === 'lobby');   // 遊戲中可隨時回大廳
   if (Hub.currentGame && Hub.currentGame.onPhase) Hub.currentGame.onPhase(next);
   sendAllStatus();
+  if (next !== 'result' && Hub.Score) Hub.Score.discard();       // 離開結算畫面還沒按「計分」→ 這一場不計分
   // 配樂：大廳與各種結算畫面放輕鬆的；比賽中放該遊戲的曲子
   const calm = next === 'lobby' || next === 'result' || next === 'roundEnd' || next === 'heatResult' || next === 'prepare' || next === 'scores';
   Sfx.music(calm || !Hub.currentGameId ? 'lobby' : Hub.currentGameId);
@@ -97,6 +98,7 @@ function statusOf(p) {
     picked: !!(p.charId && p.color),
     charName: (Hub.characters.find((c) => c.id === p.charId) || {}).name || '',
     color: p.color || '#888888',
+    season: Hub.Score ? Hub.Score.statusOf(p) : null,                // 累計分數（手機上顯示）
     ...(g && g.statusOf ? g.statusOf(p) : {}),
   };
 }
@@ -142,7 +144,7 @@ function renderLobby() {
     const ci = Hub.characters.findIndex((x) => x.id === p.charId), c = Hub.characters[ci];
     const avatar = c ? `<img class="av" src="${avatarUrl(c, ci)}" alt="">` : `<span class="av"></span>`;
     return p.color
-      ? `<li style="--c:${p.color}">${avatar}<span>${escapeHtml(p.name)}${c ? `<br><small>${p.ai ? '🤖 ' : ''}${c.name}</small>` : ''}</span></li>`
+      ? `<li style="--c:${p.color}">${avatar}<span>${escapeHtml(p.name)}${c ? `<br><small>${p.ai ? '🤖 ' : ''}${c.name}${!p.ai && Hub.Score && Hub.Score.totalOf(p) ? `　· ${Hub.Score.totalOf(p)} 分` : ''}</small>` : ''}</span></li>`
       : `<li style="opacity:.6"><span class="av"></span><span>${escapeHtml(p.name)}<br><small>選角色中…</small></span></li>`;
   }).join('') : '<li class="empty">用手機掃 QR Code 加入</li>';
   $('startBtn').disabled = ready.length < 1;

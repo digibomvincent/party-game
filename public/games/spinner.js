@@ -448,6 +448,8 @@ const SpinnerGame = (() => {
     }).join('');
     $('spinnerNextBtn').classList.add('hidden'); $('spinnerAgainBtn').classList.remove('hidden'); $('spinnerLobbyBtn').classList.remove('hidden');
     setPhase('result');
+    // 計分：依最終名次；表現加分 = 擊殺數 ×2（上限 +20）
+    Hub.Score.submit({ game: 'spinner', title: '陀螺大戰', rows: final.map((d, i) => ({ p: d.p, rank: i + 1, bonus: totalKills(d.p) * 2 })) });
   }
 
   // ============================================================

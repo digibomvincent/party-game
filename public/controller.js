@@ -297,6 +297,9 @@ function startRespawnTicker(ms) {
 
 function render() {
   if (!joined) return;
+  const se = status && status.season;                         // 累計分數（主持人按過「計分」才有）
+  $('seasonBar').classList.toggle('hidden', !se);
+  if (se) $('seasonBar').textContent = `🏆 累計 ${se.total} 分・第 ${se.rank} 名${se.last ? `（上場 +${se.last}）` : ''}`;
   const { phase, heat: cur, totalHeats } = gameState;
   const me = status;
   if (!me) { show('play'); setScreen('連線中…', '等待中', false); return; }

@@ -438,6 +438,8 @@ const SoccerGame = (() => {
     $('soccerList').innerHTML = rows.map((p) =>
       `<li><span style="color:${TEAMS[S(p).team].css}">● </span><span style="flex:1">${escapeHtml(p.name)}</span><span>${S(p).goals} 球</span></li>`).join('');
     setPhase('result');
+    // 計分：贏的隊每人 100、平手 50、輸 0（隊伍分，不看個人）；個人進球每球 +5（上限 +20）
+    Hub.Score.submit({ game: 'soccer', title: '足球', rows: field.map((f) => ({ p: f.p, base: winner < 0 ? 50 : S(f.p).team === winner ? 100 : 0, bonus: S(f.p).goals * 5 })) });
   }
 
   // ============================================================
@@ -685,7 +687,10 @@ const SoccerGame = (() => {
 
     clearTimers(); clearForfeit();
     players.forEach((p) => { delete p.soccer; });
-    list.forEach((p, i) => { S(p).team = i % 2; });                       // 輪流分到紅、藍隊，人數會平均
+    // 分隊：有累計分數時依分數「蛇形」分隊（高分者：紅、藍、藍、紅、紅、藍…）讓兩隊實力接近；沒有分數就依加入順序輪流分
+    if (list.some((p) => Hub.Score.totalOf(p) > 0)) list.sort((a, b) => Hub.Score.totalOf(b) - Hub.Score.totalOf(a));
+    const snake = list.some((p) => Hub.Score.totalOf(p) > 0);
+    list.forEach((p, i) => { S(p).team = snake ? [0, 1, 1, 0][i % 4] : i % 2; });
     field = list.map((p) => newFielder(p, S(p).team));
     version++;
     score = [0, 0]; remainingMs = MATCH_SECONDS * 1000; overtime = false;

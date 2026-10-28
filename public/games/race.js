@@ -51,7 +51,7 @@ const RaceGame = (() => {
     heat: null, lane: 0, pos: 0,
     lastSide: null, stunUntil: 0, slowUntil: 0, fallAt: 0, hopAt: 0,   // 連按 / 同時按的懲罰狀態
     finished: false, finishTime: null, heatRank: null, overallRank: null,
-    skillUses: 0, skillFail: false, skillKind: null, skillAt: 0, skillUntil: 0, frozenUntil: 0, slideFrom: 0, slideDir: 1,   // 角色技能狀態（時間都是 Date.now()）
+    skillUses: 0, skillOk: 0, skillFail: false, skillKind: null, skillAt: 0, skillUntil: 0, frozenUntil: 0, slideFrom: 0, slideDir: 1,   // 角色技能狀態（時間都是 Date.now()）
   });
   const S = (p) => p.race || (p.race = newState());
 
@@ -344,7 +344,7 @@ const RaceGame = (() => {
     if (!sk || st.skillUses >= SKILL_USES || st.finished || now < st.stunUntil || now < st.frozenUntil || now < st.skillUntil) return;
     st.skillUses++; st.skillKind = sk.kind; st.skillAt = now; st.lastSide = null;
     const fail = forceFail !== null ? forceFail : Math.random() < SKILL_FAIL;
-    st.skillFail = fail;
+    st.skillFail = fail; if (!fail) st.skillOk++;     // 成功的次數（計分的表現加分用）
     let ms = { boar: BOAR_MS, sing: SING_MS, giant: GIANT_MS, slide: SLIDE_MS }[sk.kind];
     if (fail) {
       if (sk.kind === 'boar') { ms = 1200; st.stunUntil = now + FALL_MS; st.fallAt = now; }      // 摔下來：跌倒
@@ -463,6 +463,10 @@ const RaceGame = (() => {
       `<li><span>${S(p).overallRank}. ${escapeHtml(p.name)}</span>` +
       (S(p).finished ? `<span>${fmtTime(S(p).finishTime)}（第 ${S(p).heat + 1} 組）</span>` : `<span class="dnf">沒跑完</span>`) + `</li>`).join('');
     setPhase('result');
+    // 計分：全部組別依抵達時間統一排名；表現加分 = 第一個到終點 +5、技能成功每次 +2（上限 +6）
+    const everyone = [...done, ...dnf];
+    Hub.Score.submit({ game: 'race', title: '跑步', rows: everyone.map((p) => ({ p, rank: S(p).overallRank,
+      bonus: (S(p).overallRank === 1 && S(p).finished ? 5 : 0) + Math.min(6, S(p).skillOk * 2) })) });
   }
 
   // ============================================================

@@ -20,7 +20,7 @@ const QuizGame = (() => {
   ];
 
   // 每位玩家：{ score, streak, ans（-1 = 還沒答）, at（答題時間）, gain, correct, rank, counted }
-  const S = (p) => p.quiz || (p.quiz = { score: 0, streak: 0, ans: -1, at: 0, gain: 0, correct: null, rank: 0 });
+  const S = (p) => p.quiz || (p.quiz = { score: 0, streak: 0, right: 0, ans: -1, at: 0, gain: 0, correct: null, rank: 0 });
   let bank = null;              // questions.json
   let deck = [], idx = -1, seconds = 15, deadline = 0, counts = [0, 0, 0, 0], timers = [], tickTimer = null;
   let participants = [];        // 這場上場的人（開局時決定）
@@ -123,7 +123,7 @@ const QuizGame = (() => {
         const left = Math.max(0, 1 - (s.at - (deadline - seconds * 1000)) / (seconds * 1000));     // 剩餘時間比例（越快越高）
         s.streak++;
         s.gain = Math.round(BASE_POINTS + BASE_POINTS * left) + Math.min(3, s.streak - 1) * STREAK_BONUS;
-        s.correct = true;
+        s.correct = true; s.right++;
       } else { s.streak = 0; s.gain = 0; s.correct = false; }
       s.score += s.gain;
     });
@@ -148,6 +148,8 @@ const QuizGame = (() => {
     el.resultList.classList.toggle('many', rows.length > 6);
     el.resultList.innerHTML = rows.map((p, i) => `<li><span>${i === 0 ? '👑 ' : ''}${i + 1}. ${escapeHtml(p.name)}</span><span>${S(p).score} 分</span></li>`).join('');
     show('result'); setPhase('result'); Sfx.play('win');
+    // 計分：依總分名次（同分並列）；表現加分 = 答對題數 ×4（上限 +20）
+    Hub.Score.submit({ game: 'quiz', title: '猜猜他是誰', rows: rows.map((p) => ({ p, rank: 1 + rows.filter((x) => S(x).score > S(p).score).length, bonus: S(p).right * 4 })) });
   }
 
   // ---------- 給大廳（host.js）呼叫的介面 ----------

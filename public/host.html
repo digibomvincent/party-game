@@ -18,9 +18,9 @@
     h2 { font-size: 28px; margin: 0 0 10px; }
 
     /* 遊戲大廳：標題 + 左右兩欄（左：選遊戲，右：加入的玩家） */
-    #lobby { justify-content: flex-start; padding: 28px 48px 32px; }
+    #lobby { justify-content: flex-start; padding: 28px 48px 32px; overflow-y: auto; }   /* 內容比螢幕高時，整個大廳可以上下捲動 */
     #lobby h1 { font-size: 56px; margin: 0 0 22px; letter-spacing: 2px; }
-    .hub { flex: 1; min-height: 0; width: 100%; max-width: 1200px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; }
+    .hub { flex: 1 0 auto; min-height: 0; width: 100%; max-width: 1200px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; }
     .col { background: #16222e; border-radius: 20px; padding: 22px 26px; display: flex; flex-direction: column;
       min-height: 0; text-align: left; }
     .col h2 { font-size: 26px; margin: 0 0 14px; color: #cfe0f1; }

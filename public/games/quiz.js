@@ -25,6 +25,13 @@ const QuizGame = (() => {
   let deck = [], idx = -1, seconds = 15, deadline = 0, counts = [0, 0, 0, 0], timers = [], tickTimer = null;
   let participants = [];        // 這場上場的人（開局時決定）
   const q = () => deck[idx];
+  // 產生這一題的四個選項：有 name 的題目 = 正確答案 + 3 個干擾（干擾名單 decoys + 其他題的答案，隨機挑、不重複），位置隨機；沒有 name 的題目沿用 options／answer
+  function prepare(base) {
+    if (base.name == null) return base;
+    const pool = [...new Set([...(bank.decoys || []), ...bank.questions.map((x) => x.name)].filter((x) => x != null && x !== base.name))];
+    const options = shuffle([base.name, ...shuffle(pool).slice(0, 3)]);
+    return { ...base, options, answer: options.indexOf(base.name) };
+  }
   function clearTimers() { timers.forEach(clearTimeout); timers = []; clearInterval(tickTimer); tickTimer = null; }
   function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
   const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -85,6 +92,7 @@ const QuizGame = (() => {
     clearTimers();
     idx++;
     if (idx >= deck.length) { showFinal(); return; }
+    deck[idx] = prepare(deck[idx]);
     participants.forEach((p) => { const s = S(p); s.ans = -1; s.at = 0; s.gain = 0; s.correct = null; });
     counts = [0, 0, 0, 0];
     el.num.textContent = `第 ${idx + 1} / ${deck.length} 題`;

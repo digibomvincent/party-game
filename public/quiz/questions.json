@@ -2,7 +2,125 @@
   "_說明": "題庫。image 是原圖、mask 是黑色剪影（透明 PNG，只有要猜的那位是黑的）；options 是四個選項（顯示在 A B C D 上）；answer 是正確答案的位置（0=A 1=B 2=C 3=D）。seconds 是每題作答秒數。新增題目：把原圖和剪影放進 public/quiz/，在下面加一筆。",
   "seconds": 15,
   "questions": [
-    { "image": "quiz/g01.jpg", "mask": "quiz/g01_mask.png", "options": ["A", "B", "C", "D"], "answer": 0, "note": "g01：整個人" },
-    { "image": "quiz/g02.jpg", "mask": "quiz/g02_mask.png", "options": ["A", "B", "C", "D"], "answer": 2, "note": "g02：最右邊的人" }
+    {
+      "image": "quiz/g01.jpg",
+      "mask": "quiz/g01_mask.png",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "answer": 0,
+      "note": "g01：整個人"
+    },
+    {
+      "image": "quiz/g02.jpg",
+      "mask": "quiz/g02_mask.png",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "answer": 2,
+      "note": "g02：最右邊的人"
+    },
+    {
+      "image": "quiz/g03.jpg",
+      "mask": "quiz/g03_mask.png",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "answer": 1,
+      "note": "g03：右邊第一位"
+    },
+    {
+      "image": "quiz/g04.jpg",
+      "mask": "quiz/g04_mask.png",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "answer": 3,
+      "note": "g04：右下角那位"
+    },
+    {
+      "image": "quiz/g05.jpg",
+      "mask": "quiz/g05_mask.png",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "answer": 0,
+      "note": "g05：穿著衣服的娃娃"
+    },
+    {
+      "image": "quiz/g06.jpg",
+      "mask": "quiz/g06_mask.png",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "answer": 2,
+      "note": "g06：右邊第二位"
+    },
+    {
+      "image": "quiz/g07.jpg",
+      "mask": "quiz/g07_mask.png",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "answer": 1,
+      "note": "g07：照片裡的女生"
+    },
+    {
+      "image": "quiz/g08.jpg",
+      "mask": "quiz/g08_mask.png",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "answer": 3,
+      "note": "g08：左邊第二位"
+    },
+    {
+      "image": "quiz/g09.jpg",
+      "mask": "quiz/g09_mask.png",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "answer": 0,
+      "note": "g09：右邊第一位"
+    },
+    {
+      "image": "quiz/g10.jpg",
+      "mask": "quiz/g10_mask.png",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "answer": 2,
+      "note": "g10：戴眼鏡的男生"
+    }
   ]
 }

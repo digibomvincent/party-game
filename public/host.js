@@ -28,9 +28,9 @@ const CANVAS_W = 1280, CANVAS_H = 720;
 // enabled:false 的會顯示「即將推出」，不能選。
 const GAME_LIST = [
   { id: 'race',   icon: '🏃', name: '跑步', desc: '左右交替連按，衝向終點！', enabled: true },
-  { id: 'soccer', icon: '⚽', name: '足球', desc: '搖桿跑位，用大頭把球頂進球門', enabled: true,  badge: '測試中' },
-  { id: 'spinner', icon: '🌀', name: '陀螺大戰', desc: '操控圓盤互撞，把別人撞出平台', enabled: true,  badge: '開發中' },
-  { id: 'quiz', icon: '❓', name: '猜猜他是誰', desc: '黑色剪影搶答，答對越快分數越高', enabled: true,  badge: '新' },
+  { id: 'soccer', icon: '⚽', name: '足球', desc: '搖桿跑位，用大頭把球頂進球門', enabled: true },
+  { id: 'spinner', icon: '🌀', name: '陀螺大戰', desc: '操控圓盤互撞，把別人撞出平台', enabled: true },
+  { id: 'quiz', icon: '❓', name: '猜猜他是誰', desc: '黑色剪影搶答，答對越快分數越高', enabled: true },
 ];
 let selectedGame = 'race';   // 大廳目前選的遊戲
 

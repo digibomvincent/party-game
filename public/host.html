@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <title>運動會 - 主畫面</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet">
   <style>
     html, body { margin: 0; height: 100%; background: #101820; overflow: hidden;
       font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; color: #fff; }
@@ -126,6 +128,75 @@
     #sndVol { width: 90px; accent-color: #22c55e; }
     #sndBox.locked { animation: sndPulse 1.4s infinite; }
     @keyframes sndPulse { 50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, .6); } }
+
+    /* ===================== 外觀主題（運動會）：深藍夜空底 + 玻璃卡片 + 金色標題 + 立體按鈕 ===================== */
+    :root { --line: rgba(255, 255, 255, .12); --glass: rgba(255, 255, 255, .06); --glass2: rgba(255, 255, 255, .1); --gold: #fbbf24; }
+    html, body, #lobby { background:
+        radial-gradient(1100px 620px at 12% -12%, rgba(59, 130, 246, .30), transparent 60%),
+        radial-gradient(900px 600px at 112% 112%, rgba(236, 72, 153, .22), transparent 60%),
+        radial-gradient(700px 420px at 90% 0%, rgba(34, 197, 94, .14), transparent 60%),
+        linear-gradient(160deg, #0a1120, #111a2f 55%, #0c1322); }
+    html, body, button, select { font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif; }
+    .panel { background: rgba(9, 14, 28, .86); backdrop-filter: blur(6px); }
+    .panel h1 { font-weight: 900; letter-spacing: 2px; text-shadow: 0 4px 24px rgba(251, 191, 36, .35); }
+    #lobby { padding-top: 18px; }
+    #lobby h1 { font-size: 58px; font-weight: 900; letter-spacing: 14px; margin: 0; padding-left: 14px; line-height: 1.15;
+      background: linear-gradient(180deg, #fff7d6 0%, #fde68a 35%, #f59e0b 75%, #ea580c 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+      text-shadow: none; filter: drop-shadow(0 6px 20px rgba(245, 158, 11, .35)); }
+    #lobby h1::after { content: ''; display: block; width: 220px; height: 6px; margin: 8px auto 16px; border-radius: 3px;
+      background: linear-gradient(90deg, #3b82f6 0 20%, #facc15 20% 40%, #111827 40% 60%, #22c55e 60% 80%, #ef4444 80%); box-shadow: 0 2px 12px rgba(0, 0, 0, .4); }
+    .col { background: var(--glass); border: 1px solid var(--line); border-radius: 26px; box-shadow: 0 18px 50px rgba(0, 0, 0, .35); backdrop-filter: blur(6px); }
+    .col h2 { color: #e2e8f0; font-weight: 900; letter-spacing: 1px; }
+    #count { display: inline-block; min-width: 1.6em; padding: 0 10px; border-radius: 999px; background: var(--gold); color: #3b2400; text-align: center; }
+    /* 遊戲卡片：左邊一條顏色、圓角圖示底、選中時發光並打勾 */
+    .game-card { position: relative; overflow: hidden; background: linear-gradient(135deg, rgba(255, 255, 255, .08), rgba(255, 255, 255, .03));
+      border: 2px solid var(--line); border-radius: 20px; transition: transform .15s, box-shadow .15s, border-color .15s, background .15s; }
+    .game-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 7px; background: var(--gc, #22c55e); }
+    .game-card[data-id=race] { --gc: #f97316; } .game-card[data-id=soccer] { --gc: #22c55e; } .game-card[data-id=spinner] { --gc: #a855f7; } .game-card[data-id=quiz] { --gc: #3b82f6; }
+    .game-card:hover { transform: translateY(-2px); background: linear-gradient(135deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, .05)); box-shadow: 0 10px 26px rgba(0, 0, 0, .3); }
+    .game-card.sel { border-color: var(--gc); background: linear-gradient(135deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .05)); box-shadow: 0 0 0 1px var(--gc), 0 10px 34px -6px var(--gc); }
+    .game-card.sel::after { content: '✓'; position: absolute; right: 20px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%;
+      background: var(--gc); color: #fff; font-size: 24px; font-weight: 900; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
+    #gameList { gap: 12px; }
+    .game-card { padding: 10px 18px; }
+    .game-card .name { font-size: 30px; }
+    .game-card .desc { font-size: 17px; }
+    .game-card .icon { flex: none; width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center; font-size: 38px;
+      background: rgba(255, 255, 255, .09); box-shadow: inset 0 0 0 1px var(--line); }
+    .game-card .name { font-weight: 900; letter-spacing: 1px; }
+    .game-card .desc { color: #a5b4c8; }
+    /* 按鈕：膠囊形、立體（按下會壓下去） */
+    button { border-radius: 999px; background: linear-gradient(180deg, #4ade80, #16a34a); color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, .25);
+      box-shadow: 0 6px 0 rgba(0, 0, 0, .35), 0 10px 22px rgba(0, 0, 0, .3); transition: transform .08s, box-shadow .08s, filter .15s; }
+    button:hover:not(:disabled) { filter: brightness(1.08); }
+    button:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0, 0, 0, .35), 0 4px 10px rgba(0, 0, 0, .3); }
+    button:disabled { background: #2b3647; color: #64748b; box-shadow: none; text-shadow: none; }
+    #standBtn { background: linear-gradient(180deg, #fde68a, #f59e0b) !important; color: #3b2400 !important; text-shadow: none; }
+    #homeBtn, .aibar button, .aibar select, #sndBox button, #statTabs button { box-shadow: none; text-shadow: none; }
+    #homeBtn { background: rgba(255, 255, 255, .12); border: 1px solid var(--line); backdrop-filter: blur(6px); }
+    .aibar button, .aibar select { background: rgba(255, 255, 255, .1); border: 1px solid var(--line); border-radius: 999px; }
+    #scoreNo, #standReset { background: linear-gradient(180deg, #64748b, #475569) !important; }
+    /* 加入方式與玩家名單 */
+    .join { border-bottom: 1px solid var(--line); }
+    .qr-box { border-radius: 18px; padding: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+    .room b { background: linear-gradient(180deg, #fff, #fde68a); -webkit-background-clip: text; background-clip: text; color: transparent; letter-spacing: 10px; }
+    #playerList li { background: rgba(255, 255, 255, .06); border: 1px solid var(--line); border-radius: 999px; padding: 6px 16px 6px 6px; font-weight: 700; }
+    #playerList .av { width: 42px; height: 42px; border-width: 3px; box-shadow: 0 0 0 2px rgba(0, 0, 0, .35); }
+    #playerList .empty { border: 0; font-weight: 500; }
+    /* 排名清單：前三名金銀銅 */
+    ol.rank li { background: rgba(255, 255, 255, .07); border: 1px solid var(--line); border-radius: 14px; }
+    ol.rank li:nth-child(1) { background: linear-gradient(90deg, rgba(251, 191, 36, .38), rgba(251, 191, 36, .08)); border-color: rgba(251, 191, 36, .7); }
+    ol.rank li:nth-child(2) { background: linear-gradient(90deg, rgba(203, 213, 225, .3), rgba(203, 213, 225, .06)); border-color: rgba(203, 213, 225, .55); }
+    ol.rank li:nth-child(3) { background: linear-gradient(90deg, rgba(217, 119, 6, .32), rgba(217, 119, 6, .06)); border-color: rgba(217, 119, 6, .6); }
+    #standList li { background: rgba(255, 255, 255, .07); border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 16px; }
+    #standList li:nth-child(1) { background: linear-gradient(90deg, rgba(251, 191, 36, .3), rgba(255, 255, 255, .05)); }
+    #scoreBar { border-radius: 999px; border: 2px solid var(--gold); background: rgba(10, 16, 30, .92); box-shadow: 0 12px 40px rgba(0, 0, 0, .5); backdrop-filter: blur(8px); padding: 10px 14px 10px 26px; }
+    #sndBox { background: rgba(255, 255, 255, .08); border: 1px solid var(--line); border-radius: 999px; backdrop-filter: blur(6px); }
+    #hud { text-shadow: 0 2px 10px rgba(0, 0, 0, .6); }
+    /* 猜猜他是誰：選項色塊立體一點 */
+    .qo { box-shadow: inset 0 -7px 0 rgba(0, 0, 0, .22), 0 8px 20px rgba(0, 0, 0, .3); border-radius: 20px; }
+    #qTimer { background: rgba(255, 255, 255, .1); }
+    #qImgBox img { box-shadow: 0 16px 50px rgba(0, 0, 0, .55); }
   </style>
 </head>
 <body>

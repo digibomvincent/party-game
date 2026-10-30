@@ -69,6 +69,34 @@ const Sfx = (() => {
     s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.02);
   }
 
+  // ---------- 音檔（mp3 等）----------
+  // preload(url)：先抓好並解碼；playFile(url, { dur, vol, fade, duck })：播一段音檔（最多 dur 秒，最後 fade 秒淡出），
+  // 播的時候把配樂壓小（duck），播完再恢復。還沒抓好時會等抓好再播；沒解鎖（沒點過畫面）、靜音時不播。
+  const buffers = {}, loading = {};
+  function preload(url) {
+    if (buffers[url]) return Promise.resolve(buffers[url]);
+    if (loading[url]) return loading[url];
+    if (!ensure()) return Promise.resolve(null);
+    loading[url] = fetch(url).then((r) => r.arrayBuffer()).then((ab) => ctx.decodeAudioData(ab)).then((b) => (buffers[url] = b)).catch(() => null);
+    return loading[url];
+  }
+  let fileSeq = 0;
+  function playFile(url, o) {
+    o = o || {};
+    if (muted || !ensure() || ctx.state !== 'running') return;
+    const buf = buffers[url];
+    if (!buf) { const seq = ++fileSeq; preload(url).then((b) => { if (b && seq === fileSeq) playFile(url, o); }); return; }
+    const dur = Math.min(o.dur || buf.duration, buf.duration), fade = o.fade == null ? 0.4 : o.fade, t = ctx.currentTime;
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = buf; g.gain.setValueAtTime(o.vol || 1, t); g.gain.setValueAtTime(o.vol || 1, t + Math.max(0, dur - fade)); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    src.connect(g); g.connect(sfxBus); src.start(t, o.from || 0, dur);
+    if (o.duck !== false && musicBus) {                                  // 播的時候配樂先壓小
+      musicBus.gain.cancelScheduledValues(t); musicBus.gain.setTargetAtTime(0.12, t, 0.08);
+      musicBus.gain.setTargetAtTime(0.8, t + dur, 0.25);
+    }
+    return src;
+  }
+
   // ---------- 音效 ----------
   const arp = (notes, step, o) => notes.forEach((m, i) => tone({ type: 'square', freq: mtof(m), dur: o.dur || 0.18, vol: o.vol || 0.14, at: ctx.currentTime + i * step }));
   const SFX = {
@@ -268,6 +296,6 @@ const Sfx = (() => {
     return oc.startRendering();
   }
 
-  return { play, music, unlock, _render, setMuted, setVolume, init, pump, TRACKS,
+  return { play, music, unlock, _render, preload, playFile, setMuted, setVolume, init, pump, TRACKS,
     isMuted: () => muted, state: () => ({ ctx: ctx && ctx.state, track: curTrack, want: wantTrack, unlocked }) };
 })();

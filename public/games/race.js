@@ -334,6 +334,18 @@ const RaceGame = (() => {
     later(endHeat, HEAT_MAX_MS); // 保險計時器
   }
 
+  // ---------- 唱歌技能的影片：成功發動時在畫面右側播放，播完才消失（效果還是 SING_MS） ----------
+  const singVideo = $('singVideo');
+  function playSingVideo() {
+    if (!singVideo) return;
+    singVideo.muted = Sfx.isMuted(); singVideo.volume = 0.9;
+    singVideo.currentTime = 0; singVideo.classList.remove('hidden');
+    const p = singVideo.play();
+    if (p && p.catch) p.catch(() => { singVideo.muted = true; singVideo.play().catch(() => hideSingVideo()); });     // 瀏覽器擋有聲播放 → 改靜音播
+  }
+  function hideSingVideo() { if (!singVideo) return; singVideo.pause(); singVideo.classList.add('hidden'); }
+  if (singVideo) singVideo.addEventListener('ended', hideSingVideo);
+
   // ---------- 角色技能 ----------
   const skillOf = (p) => SKILLS[p.charId] || null;
   const active = (p, kind, now) => S(p).skillKind === kind && now < S(p).skillUntil;     // 這個技能現在正在發動嗎
@@ -360,6 +372,7 @@ const RaceGame = (() => {
     }
     if (sk.kind === 'slide') { st.slideFrom = st.pos; st.slideDone = false; st.slideDir = fail ? -1 : 1; }
     Sfx.play(fail ? 'skill_fail' : 'skill_' + sk.kind);
+    if (sk.kind === 'sing' && !fail) playSingVideo();
     sendStatus(p); later(() => sendStatus(p), ms + 60);
   }
 
@@ -490,6 +503,7 @@ const RaceGame = (() => {
     onInput: (playerId, data) => { if (data && data.side) onTap(playerId, data.side); },   // 手機的 tap 事件
     onPlayerLeft: () => checkHeatDone(),
     onPhase(phase) {                                                   // 階段切換時更新跑步用的面板
+      if (phase !== 'racing') hideSingVideo();                          // 離開比賽（結算、回大廳）就收掉影片
       $('heatPanel').classList.toggle('hidden', phase !== 'heatResult');
       $('finalPanel').classList.toggle('hidden', phase !== 'result');
       $('hud').textContent = (phase === 'lobby' || phase === 'result') ? '' : `第 ${currentHeat + 1} / ${heats.length} 組`;

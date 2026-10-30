@@ -72,6 +72,9 @@
     /* 右上角小提示：目前第幾組 */
     #homeBtn { position: fixed; top: 12px; right: 16px; font-size: 18px; padding: 8px 18px; border-radius: 10px; background: #334155; color: #fff; z-index: 5; }
     #hud { position: fixed; top: 14px; left: 20px; font-size: 28px; font-weight: bold; pointer-events: none; }
+    #singVideo { position: fixed; right: 18px; top: 50%; transform: translateY(-50%); height: 66vh; max-width: 40vw; z-index: 25; border-radius: 16px;
+      box-shadow: 0 0 0 5px #fde68a, 0 8px 40px rgba(0, 0, 0, .7); background: #000; object-fit: cover; }
+    #singVideo.hidden { display: none; }
     /* 計分條（遊戲結束時出現在畫面下方）與累計排名 */
     #scoreBar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 35; display: flex; align-items: center; gap: 14px; max-width: 94vw;
       background: rgba(15, 23, 42, .95); border: 3px solid #f59e0b; border-radius: 16px; padding: 10px 18px; font-size: 22px; }
@@ -127,6 +130,8 @@
 </head>
 <body>
   <div id="game"></div>
+  <!-- 跑步：小肥「唱歌」技能發動時，在畫面右側播放的影片（播完才消失） -->
+  <video id="singVideo" class="hidden" playsinline preload="auto"><source src="video/sing.mp4" type="video/mp4"><source src="video/sing.webm" type="video/webm"></video>
   <div id="hud"></div>
   <button id="homeBtn" class="hidden">回大廳</button>
 

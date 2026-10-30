@@ -319,7 +319,7 @@ function render() {
   if (me.role === 'late') {            // 本場開始後才加入
     setScreen('本場已經開始了<br>下一場再一起跑！', '等待中', false, color); return;
   }
-  $('btnDash').textContent = gameState.game === 'spinner' ? '衝撞' : '衝刺';
+  $('dashLabel').innerHTML = gameState.game === 'spinner' ? '衝撞<small>按住 → 滑動方向 → 放開</small>' : '衝刺';
   if (gameState.game === 'spinner' && me.ramMs) RAM_COOLDOWN_MS = me.ramMs;
   $('soccerPad').classList.toggle('solo', gameState.game === 'spinner');   // 陀螺大戰沒有頭槌／衝刺；足球有（換遊戲時要記得切回來）
   if (gameState.game === 'soccer') {   // 足球：整塊畫面是搖桿；比賽結束顯示勝負
@@ -472,7 +472,7 @@ let sentAt = 0, keepTimer = null;
 
 function sendInput() {
   const r2 = (v) => Math.round(v * 100) / 100;
-  socket.emit('input', { mx: r2(stick ? stick.mx : 0), my: r2(stick ? stick.my : 0), dash: held.dash, neck: held.neck, ult: held.ult, ax: r2(held.neck ? held.ax : 0), ay: r2(held.neck ? held.ay : 0) });
+  socket.emit('input', { mx: r2(stick ? stick.mx : 0), my: r2(stick ? stick.my : 0), dash: held.dash, neck: held.neck, ult: held.ult, ax: r2(held.neck || held.dash ? held.ax : 0), ay: r2(held.neck || held.dash ? held.ay : 0) });
   sentAt = performance.now();
 }
 // 有任何東西按著就定期重送；全部放開就停
@@ -527,33 +527,53 @@ for (const ev of ['pointerup', 'pointercancel']) {
   zone.addEventListener(ev, (e) => { if (stick && e.pointerId === stick.id) releaseStick(); });
 }
 
-// 衝刺（足球）／衝撞（陀螺大戰）：按下就觸發
+// 衝刺（足球）：按下就觸發。衝撞（陀螺大戰）：按住衝撞鈕、滑動方向、放開才衝出去（單純點一下不會觸發）
 let RAM_COOLDOWN_MS = 2000;      // 衝撞冷卻（毫秒）；每個角色不同，由 host 的狀態更新
+const RAM_SLIDE_R = 50, RAM_MIN = 0.35;      // 滑動多遠（像素）算推到底／至少要滑到多少比例才算有選方向
 {
   const btn = $('btnDash');
   btn.addEventListener('pointerdown', (e) => {
+    if (gameState.game === 'spinner') return;                 // 陀螺大戰的衝撞走下面的「滑動」處理
     e.preventDefault(); btn.setPointerCapture(e.pointerId);
-    if (gameState.game === 'spinner') {           // 衝撞有冷卻（host 才是準的，手機這邊只是提示）：冷卻中按了沒反應
-      if (btn.classList.contains('cooling')) return;
-      btn.classList.add('cooling'); setTimeout(() => btn.classList.remove('cooling'), RAM_COOLDOWN_MS);
-    }
     held.dash = true; btn.classList.add('pressed'); updateKeepAlive(); sendInput(); vibrate([25]);
   });
   const up = () => { if (!held.dash) return; held.dash = false; btn.classList.remove('pressed'); updateKeepAlive(); sendInput(); };
   btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up);
 }
-
-// 必殺技（足球）：每人每場一次，球在身邊（按鈕會閃）時按下 → 全場暫停，用左邊搖桿瞄準 1 秒，球就以超快速度飛出去
-{
-  const btn = $('btnUlt');
+// 衝撞的「按住 → 滑動 → 放開」：搖桿模式的 #btnDash 和傾斜模式的 #btnRamGyro 共用
+function attachRamSlide(btn, fire) {
+  let st = null;
+  const arrow = () => btn.querySelector('.ramArrow');
   btn.addEventListener('pointerdown', (e) => {
-    e.preventDefault(); btn.setPointerCapture(e.pointerId);
-    if (btn.dataset.state !== 'near') { vibrate([40, 40, 40]); return; }       // 還不能用：球不在身邊，或已經用過
-    held.ult = true; updateKeepAlive(); sendInput(); vibrate([60]);
+    if (gameState.game !== 'spinner') return;
+    e.preventDefault();
+    if (btn.classList.contains('cooling') || st) return;
+    btn.setPointerCapture(e.pointerId);
+    st = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0 };
+    btn.classList.add('pressed'); vibrate([15]);
   });
-  const up = () => { if (!held.ult) return; held.ult = false; updateKeepAlive(); sendInput(); };
-  btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up);
+  btn.addEventListener('pointermove', (e) => {
+    if (!st || e.pointerId !== st.id) return;
+    let dx = (e.clientX - st.x0) / RAM_SLIDE_R, dy = (e.clientY - st.y0) / RAM_SLIDE_R;
+    const mag = Math.hypot(dx, dy);
+    if (mag > 1) { dx /= mag; dy /= mag; }
+    st.dx = dx; st.dy = dy;
+    const m = Math.min(1, mag), a = arrow();
+    if (a) { a.style.opacity = m >= RAM_MIN ? 1 : 0.3; a.style.transform = `translate(0, -50%) rotate(${Math.atan2(dy, dx)}rad) scaleX(${0.5 + 0.9 * m})`; }
+  });
+  const end = (e, cancel) => {
+    if (!st || e.pointerId !== st.id) return;
+    const { dx, dy } = st, mag = Math.hypot(dx, dy); st = null;
+    btn.classList.remove('pressed');
+    const a = arrow(); if (a) a.style.opacity = 0;
+    if (cancel || mag < RAM_MIN) return;                      // 沒滑（單純點一下）或沒滑夠 → 不衝撞
+    btn.classList.add('cooling'); setTimeout(() => btn.classList.remove('cooling'), RAM_COOLDOWN_MS);
+    fire(dx / mag, dy / mag); vibrate([40]);
+  };
+  btn.addEventListener('pointerup', (e) => end(e, false)); btn.addEventListener('pointercancel', (e) => end(e, true));
 }
+// 搖桿模式：把「放開那一刻」的方向送出去（dash:true + ax, ay），接著立刻送一次放開
+attachRamSlide($('btnDash'), (dx, dy) => { held.dash = true; held.ax = dx; held.ay = dy; sendInput(); held.dash = false; held.ax = held.ay = 0; sendInput(); });
 
 // 頭槌：按住蓄力，在這塊區域「像搖桿一樣滑動」指定要把球打去哪個方向，放開就打出去。
 //       球在角色附近時，頭會直接衝向球，球則照你滑的方向飛；沒滑（單純按住放開）就用目前的移動方向。
@@ -646,21 +666,11 @@ function onOrientation(e) {
 }
 function sendGyro() {
   const r2 = (v) => Math.round(v * 100) / 100;
-  socket.emit('input', { mx: r2(gyro.vec.mx), my: r2(gyro.vec.my), dash: !!gyro.ram, mode: 'gyro' });
+  socket.emit('input', { mx: r2(gyro.vec.mx), my: r2(gyro.vec.my), dash: !!gyro.ram, ax: r2(gyro.ax || 0), ay: r2(gyro.ay || 0), mode: 'gyro' });
   gyro.sentAt = performance.now();
 }
-// 傾斜操控畫面上的「衝撞」鈕（和搖桿模式共用冷卻提示；真正的冷卻在 host）
-{
-  const btn = $('btnRamGyro') || document.createElement('button');
-  btn.addEventListener('pointerdown', (e) => {
-    e.preventDefault(); btn.setPointerCapture(e.pointerId);
-    if (btn.classList.contains('cooling')) return;
-    btn.classList.add('cooling', 'pressed'); setTimeout(() => btn.classList.remove('cooling'), RAM_COOLDOWN_MS);
-    gyro.ram = true; sendGyro(); vibrate([25]);
-  });
-  const up = () => { if (!gyro.ram) return; gyro.ram = false; btn.classList.remove('pressed'); sendGyro(); };
-  btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up);
-}
+// 傾斜操控畫面上的「衝撞」鈕：一樣是按住、滑動方向、放開
+attachRamSlide($('btnRamGyro'), (dx, dy) => { gyro.ram = true; gyro.ax = dx; gyro.ay = dy; sendGyro(); gyro.ram = false; gyro.ax = gyro.ay = 0; sendGyro(); });
 // 傾斜畫面顯示時，就算手機放著不動也定期重送（host 超過 0.6 秒沒收到會當作回正）
 function updateGyroTimer(on) {
   if (on && !gyroTimer) gyroTimer = setInterval(() => { if (ctrlMode === 'gyro') sendGyro(); }, 150);

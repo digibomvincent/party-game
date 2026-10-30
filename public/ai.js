@@ -135,7 +135,7 @@ const AI = (() => {
     if (Hub.phase !== 'playing') { send({}); return; }
     const me = S.discs.find((d) => d.id === p.id);
     if (!me || !me.alive || me.falling) { send({}); return; }
-    const R = S.arenaR, r = Math.hypot(me.x - 640, me.y - 390);
+    const R = 1, r = Math.hypot((me.x - 640) / S.a, (me.y - 390) / S.b);                 // 橢圓座標：0 = 中心，1 = 邊緣
     const foes = S.discs.filter((d) => d.id !== p.id && d.alive && !d.falling);
     let want = null, dash = false;
     const w = wander(a, L, now);
@@ -145,7 +145,7 @@ const AI = (() => {
     } else {
       // 挑最容易撞出去的：離我近、而且離中心遠
       let best = null, bs = Infinity;
-      for (const f of foes) { const sc = Math.hypot(f.x - me.x, f.y - me.y) - 0.6 * Math.hypot(f.x - 640, f.y - 390); if (sc < bs) { bs = sc; best = f; } }
+      for (const f of foes) { const sc = Math.hypot(f.x - me.x, f.y - me.y) - 0.6 * 300 * Math.hypot((f.x - 640) / S.a, (f.y - 390) / S.b); if (sc < bs) { bs = sc; best = f; } }
       const dx = best.x + best.vx * 0.15 - me.x, dy = best.y + best.vy * 0.15 - me.y, d = Math.hypot(dx, dy);
       want = jitter(unit(dx, dy), 0.5 * L.jit / a.skill);
       if (d < 150 && r < R * 0.6 && now > a.ramAt && Math.random() < L.ramP * a.skill) { dash = true; a.ramAt = now + 2400 + Math.random() * 1500; }
@@ -157,7 +157,7 @@ const AI = (() => {
         if (hd < 110) { const away = unit(me.x - o.x, me.y - o.y); want = unit(want.x + away.x * 2, want.y + away.y * 2); dash = false; }
       }
     }
-    send({ mx: want.x * 0.9 * Math.max(L.speed, 0.7), my: want.y * 0.9 * Math.max(L.speed, 0.7), dash });
+    send({ mx: want.x * 0.9 * Math.max(L.speed, 0.7), my: want.y * 0.9 * Math.max(L.speed, 0.7), dash, ax: want.x, ay: want.y });   // 衝撞的方向 = 想去的方向（和手機「按住滑動、放開」送來的格式一樣）
   }
 
   // ---------- 猜猜他是誰 ----------

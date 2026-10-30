@@ -134,6 +134,10 @@
       border: 4px solid #fff; transform: translate(-50%, -50%); }
     #btnRamGyro { border: 0; border-radius: 24px; padding: 26px 0; font-size: 34px; font-weight: bold; font-family: inherit; color: #fff; background: var(--c, #3b82f6); touch-action: none; }
     #btnRamGyro.pressed { transform: scale(.97); filter: brightness(1.5); }
+    #btnDash, #btnRamGyro { position: relative; }
+    #btnDash small, #btnRamGyro small { display: block; font-size: 14px; font-weight: normal; opacity: .9; }
+    .ramArrow { position: absolute; left: 50%; top: 50%; width: 52px; height: 9px; margin-left: 0; background: #fff; border-radius: 5px; transform-origin: 0 50%; opacity: 0; pointer-events: none; }
+    .ramArrow::after { content: ''; position: absolute; right: -10px; top: -9px; border: 14px solid transparent; border-left: 18px solid #fff; border-right: 0; }
     #btnRamGyro.cooling { filter: grayscale(.8) brightness(.6); }
     #gyroBtns { display: flex; gap: 12px; }
     #gyroBtns button { flex: 1; border: 0; border-radius: 18px; padding: 18px 0; font-size: 24px; font-weight: bold; font-family: inherit; color: #fff; background: #334155; }   /* 陀螺大戰：只有搖桿，沒有頭槌／衝刺 */
@@ -187,7 +191,7 @@
           <div id="neckLabel">頭槌<small>按住蓄力、往想打的方向滑<br>放開打出去</small></div>
           <div id="aimBase" class="hidden"><div id="aimKnob"></div></div>
         </div>
-        <button id="btnDash">衝刺</button>
+        <button id="btnDash"><span id="dashLabel">衝刺</span><i class="ramArrow"></i></button>
         <button id="btnUlt" data-state="ready">必殺技<small>球在身邊才能用</small></button>
       </div>
     </div>
@@ -197,7 +201,7 @@
     </div>
     <div id="gyroPad" class="hidden">
       <div id="tiltBox"><div id="tiltRing"><div id="tiltBubble"></div></div></div>
-      <button id="btnRamGyro">衝撞</button>
+      <button id="btnRamGyro"><span>衝撞<small>按住 → 滑動方向 → 放開</small></span><i class="ramArrow"></i></button>
       <div id="gyroBtns"><button id="btnCalib">校正（現在的姿勢當水平）</button><button id="btnToStick">改用搖桿</button></div>
     </div>
     <div id="quizPad" class="hidden">

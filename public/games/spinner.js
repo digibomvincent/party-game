@@ -16,7 +16,14 @@ const SpinnerGame = (() => {
 
   // ---------- 平台（畫布 1280x720，俯視）----------
   const AX = 640, AY = 390;            // 平台中心
-  const ARENA_R = 300;                 // 平台起始半徑
+  const ARENA_R = 300;                 // 平台起始「縱向」半徑（橢圓的短軸）
+  const ARENA_A = 500;                 // 平台起始「橫向」半徑（橢圓的長軸）：左右加大，變成橫的橢圓
+  // 擋板：橢圓上方 120° 的弧（正上方 ±60°）裝了擋板，圓盤不會從這一段掉出去（會被彈回來）。
+  // 站在擋板區（貼近擋板）往下衝撞：衝力 ×WALL_RAM_MUL、撞到人的力道 ×WALL_RAM_POWER，可以把人直接打出平台。
+  const WALL_FROM = -150 * Math.PI / 180, WALL_TO = -30 * Math.PI / 180;   // 擋板的角度範圍（畫面上往上是負的）
+  const WALL_E = 0.55;                 // 撞到擋板的彈性
+  const WALL_ZONE = 0.72;              // 離中心（橢圓座標）超過這個比例就算「擋板區」
+  const WALL_RAM_MUL = 1.9, WALL_RAM_POWER = 3.2, WALL_RAM_MAX = 1300;
 
   // ---------- 規則 ----------
   const MAX_PLAYERS = 12;              // 最多上場人數（衣服顏色也只有 12 色）
@@ -75,11 +82,11 @@ const SpinnerGame = (() => {
 
   // ---------- 這個遊戲的狀態 ----------
   // 每位玩家的狀態放在 p.spinner（回大廳時清掉）：{ input, kills1, kills2, deaths, eliminated, roundRank, finalRank }
-  const S = (p) => p.spinner || (p.spinner = { input: { mx: 0, my: 0, at: 0, dash: false, ramReq: false }, kills1: 0, kills2: 0, deaths: 0, eliminated: false, roundRank: null, finalRank: null });
+  const S = (p) => p.spinner || (p.spinner = { input: { mx: 0, my: 0, at: 0, dash: false, ramReq: false, ramDir: null }, kills1: 0, kills2: 0, deaths: 0, eliminated: false, roundRank: null, finalRank: null });
   let discs = [];                      // 場上的圓盤（見 newDisc）
   let version = 0;                     // 場上圓盤換了就加一，場景據此重建
   let round = 1;
-  let arenaR = ARENA_R;
+  let arenaR = ARENA_R;                // 目前平台「縱向」半徑（縮圈時一起縮小；橫向 = arenaR × ARENA_A / ARENA_R）
   let remainingMs = 0;                 // 第 1 回合剩餘時間
   let elapsedMs = 0;                   // 第 2 回合已經過的時間
   let elimOrder = [];                  // 第 2 回合淘汰順序（先淘汰的在前）
@@ -90,6 +97,7 @@ const SpinnerGame = (() => {
   let obsEvents = [];                  // 障礙出現事件（場景播音效）
   let boostEvents = [];                // 加速帶被踩到（場景播音效、火花）
   let ramEvents = [];                  // 衝撞事件（場景播衝刺煙塵）
+  let wallEvents = [];                 // 撞到擋板（場景播火花）
   let hitEvents = [];                  // 撞擊事件（場景播火花、震動）
   let fallEvents = [];                 // 掉下去事件（場景播水花）
   let timers = [];
@@ -111,22 +119,28 @@ const SpinnerGame = (() => {
     return { p, st, r: DISC_R * st.size, x: AX, y: AY, vx: 0, vy: 0, alive: true, falling: false, fallT: 0, respawnAt: 0, ghostUntil: 0, lastHit: null, spin: 0, ramT: 0, ramCd: 0, boostCd: 0, dampMul: 1, accMul: 1 };
   }
 
+  // ---------- 橢圓平台 ----------
+  const axisA = () => ARENA_A * (arenaR / ARENA_R), axisB = () => arenaR;
+  const ellNorm = (x, y) => Math.hypot((x - AX) / axisA(), (y - AY) / axisB());        // 1 = 剛好在邊緣上，>1 = 在外面
+  const wallAngle = (x, y) => Math.atan2((y - AY) / axisB(), (x - AX) / axisA());
+  const inWallArc = (phi) => phi >= WALL_FROM && phi <= WALL_TO;
+
   // ============================================================
   // 開局站位
   // ============================================================
   // 圍著平台排成一圈（離邊緣遠一點），第 1、2 回合開始時都用這個
   function placeRing() {
     discs.forEach((d, i) => {
-      const a = (i / discs.length) * Math.PI * 2 - Math.PI / 2, r = ARENA_R * 0.6;
-      Object.assign(d, { x: AX + Math.cos(a) * r, y: AY + Math.sin(a) * r, vx: 0, vy: 0, alive: !S(d.p).eliminated, falling: false, fallT: 0, respawnAt: 0, ghostUntil: 0, lastHit: null, ramT: 0, ramCd: 0 });
+      const a = (i / discs.length) * Math.PI * 2 - Math.PI / 2;
+      Object.assign(d, { x: AX + Math.cos(a) * ARENA_A * 0.6, y: AY + Math.sin(a) * ARENA_R * 0.6, vx: 0, vy: 0, alive: !S(d.p).eliminated, falling: false, fallT: 0, respawnAt: 0, ghostUntil: 0, lastHit: null, ramT: 0, ramCd: 0 });
     });
   }
   // 復活位置：在平台中間偏內的範圍隨機挑 24 個點，選離其他人最遠的那個
   function pickSpawn() {
     let best = { x: AX, y: AY, score: -1 };
     for (let k = 0; k < 24; k++) {
-      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * arenaR * 0.55;
-      const x = AX + Math.cos(a) * r, y = AY + Math.sin(a) * r;
+      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 0.55;
+      const x = AX + Math.cos(a) * r * axisA(), y = AY + Math.sin(a) * r * axisB();
       let nearest = Infinity;
       for (const d of discs) if (d.alive && !d.falling) nearest = Math.min(nearest, Math.hypot(d.x - x, d.y - y));
       for (const o of obstacles) if (o.type === 'hole' || o.type === 'bumper' || o.type === 'bar') nearest = Math.min(nearest, Math.hypot(o.x - x, o.y - y) - obsRadius(o) - 30);   // 別復活在洞、柱子、旋轉棒上
@@ -153,8 +167,8 @@ const SpinnerGame = (() => {
     // 在平台裡隨機挑 24 個點，要離每個圓盤至少 70、離其他障礙至少 120；選離最近的東西最遠的那個
     let best = null;
     for (let k = 0; k < 24; k++) {
-      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * Math.max(0, arenaR * 0.75 - rad * 0.5);
-      const x = AX + Math.cos(a) * rr, y = AY + Math.sin(a) * rr;
+      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 0.75;
+      const x = AX + Math.cos(a) * rr * axisA(), y = AY + Math.sin(a) * rr * axisB();
       let near = Infinity;
       for (const d of discs) if (d.alive && !d.falling) near = Math.min(near, Math.hypot(d.x - x, d.y - y) - d.r - rad * 0.6);
       for (const o of obstacles) near = Math.min(near, Math.hypot(o.x - x, o.y - y) - obsRadius(o) - rad + 60);
@@ -174,7 +188,7 @@ const SpinnerGame = (() => {
     obsClock += dt;
     if (obsClock >= nextObsAt) { spawnObstacle(); nextObsAt = obsClock + OBS_GAP_S[0] + Math.random() * (OBS_GAP_S[1] - OBS_GAP_S[0]); }
     for (const o of obstacles) {
-      if (o.fadeAt > obsClock && Math.hypot(o.x - AX, o.y - AY) + obsRadius(o) * 0.6 > arenaR) { o.fadeAt = Math.min(o.fadeAt, obsClock); o.endAt = Math.min(o.endAt, obsClock + OBS_FADE_S); }   // 縮圈吃到了：直接進入淡出
+      if (o.fadeAt > obsClock && ellNorm(o.x, o.y) + obsRadius(o) * 0.6 / axisB() > 1) { o.fadeAt = Math.min(o.fadeAt, obsClock); o.endAt = Math.min(o.endAt, obsClock + OBS_FADE_S); }   // 縮圈吃到了：直接進入淡出
     }
     obstacles = obstacles.filter((o) => obsClock < o.endAt);
   }
@@ -254,27 +268,32 @@ const SpinnerGame = (() => {
         if (mag > 1) { mx /= mag; my /= mag; }
         const along = mag > 0 ? (d.vx * mx + d.vy * my) / mag : 0;
         if (along < MAX_SPEED * d.st.speed) { d.vx += mx * ACCEL * d.st.accel * d.accMul * dt; d.vy += my * ACCEL * d.st.accel * d.accMul * dt; }
-        // 衝撞：按一下往操控方向（沒推就往目前滑行方向）猛衝一段；冷卻中、或完全沒在動就不觸發
+        // 衝撞：手機上按住衝撞鈕、滑動方向、放開才觸發（單純點一下不會）；方向由滑動決定。冷卻中不觸發
         if (inp.ramReq) {
           inp.ramReq = false;
           if (d.ramCd <= 0 && now >= d.ghostUntil) {
-            const v = Math.hypot(d.vx, d.vy);
-            const dx = mag > 0.15 ? mx / mag : v > 40 ? d.vx / v : 0, dy = mag > 0.15 ? my / mag : v > 40 ? d.vy / v : 0;
-            if (dx || dy) {
-              d.vx += dx * RAM_SPEED * d.st.ram; d.vy += dy * RAM_SPEED * d.st.ram; d.ramT = RAM_SECONDS; d.ramCd = RAM_COOLDOWN / d.st.ramRate;
-              ramEvents.push({ x: d.x, y: d.y, dx, dy });
+            const rd = inp.ramDir, rm = rd ? Math.hypot(rd.x, rd.y) : 0;
+            if (rm > 0.3) {
+              const dx = rd.x / rm, dy = rd.y / rm;
+              // 擋板區往下衝：貼著擋板、方向往下（離開擋板）→ 衝力與撞人力道都加強
+              const wall = dy > 0.35 && ellNorm(d.x, d.y) > WALL_ZONE && inWallArc(wallAngle(d.x, d.y));
+              const mul = wall ? WALL_RAM_MUL : 1;
+              d.vx += dx * RAM_SPEED * d.st.ram * mul; d.vy += dy * RAM_SPEED * d.st.ram * mul;
+              d.ramT = RAM_SECONDS; d.ramCd = RAM_COOLDOWN / d.st.ramRate; d.wallRam = wall;
+              ramEvents.push({ x: d.x, y: d.y, dx, dy, wall });
             }
           }
         }
       }
       d.ramT = Math.max(0, d.ramT - dt); d.ramCd = Math.max(0, d.ramCd - dt);
+      if (d.ramT <= 0) d.wallRam = false;
       // 碗：離中心越遠、被拉回中心的力越大（線性）。往中心衝會越來越快，往外衝會越來越慢
-      const rx = d.x - AX, ry = d.y - AY, rd = Math.hypot(rx, ry);
-      if (rd > 0.001) { const pull = BOWL_G * (rd / ARENA_R) * dt; d.vx -= (rx / rd) * pull; d.vy -= (ry / rd) * pull; }
+      d.vx -= BOWL_G * ((d.x - AX) / ARENA_A) * dt; d.vy -= BOWL_G * ((d.y - AY) / ARENA_R) * dt;      // 橢圓碗：橫向、縱向邊緣的拉力一樣大
       const drag = Math.exp(-DAMP * d.st.grip * d.dampMul * dt);
       d.vx *= drag; d.vy *= drag;
       const sp = Math.hypot(d.vx, d.vy);
-      const cap = d.ramT > 0 ? RAM_MAX_SPEED : HARD_MAX_SPEED;
+      d.superT = Math.max(0, (d.superT || 0) - dt);
+      const cap = d.ramT > 0 ? (d.wallRam ? WALL_RAM_MAX : RAM_MAX_SPEED) : d.superT > 0 ? WALL_RAM_MAX : HARD_MAX_SPEED;      // 被擋板區衝撞撞到的人，速度上限也放寬（才飛得出去）
       if (sp > cap) { d.vx *= cap / sp; d.vy *= cap / sp; }
       d.x += d.vx * dt; d.y += d.vy * dt;
       collideSolids(d);
@@ -295,7 +314,8 @@ const SpinnerGame = (() => {
         const vrel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;                       // 沿著連線、互相靠近的速度
         if (vrel > 0) {
           const base = (HIT_BOOST * (1 + RESTITUTION) * vrel) / (1 / ma + 1 / mb);       // 不等質量的彈性碰撞（質量相同時 = 原本的算法）
-          const ja = base * b.st.power * (b.ramT > 0 ? RAM_POWER : 1), jb = base * a.st.power * (a.ramT > 0 ? RAM_POWER : 1);   // 對方撞擊力道大、或在衝撞中 → 我被撞得更遠
+          const ja = base * b.st.power * (b.ramT > 0 ? (b.wallRam ? WALL_RAM_POWER : RAM_POWER) : 1), jb = base * a.st.power * (a.ramT > 0 ? (a.wallRam ? WALL_RAM_POWER : RAM_POWER) : 1);   // 對方撞擊力道大、或在衝撞中 → 我被撞得更遠
+          if (b.ramT > 0 && b.wallRam) a.superT = 0.8; if (a.ramT > 0 && a.wallRam) b.superT = 0.8;
           a.vx -= (ja / ma) * nx; a.vy -= (ja / ma) * ny; b.vx += (jb / mb) * nx; b.vy += (jb / mb) * ny;
           a.lastHit = { id: b.p.id, at: now }; b.lastHit = { id: a.p.id, at: now };
           if (vrel > 80) hitEvents.push({ x: a.x + nx * a.r, y: a.y + ny * a.r, power: Math.min(1, vrel / 500 * (a.ramT > 0 || b.ramT > 0 ? 1.4 : 1)) });
@@ -305,7 +325,15 @@ const SpinnerGame = (() => {
     // 平台邊緣：圓盤中心超出平台 → 掉下去
     for (const d of discs) {
       if (!d.alive || d.falling) continue;
-      if (Math.hypot(d.x - AX, d.y - AY) > arenaR) startFall(d, now);
+      const n = ellNorm(d.x, d.y);
+      if (n <= 1) continue;
+      if (inWallArc(wallAngle(d.x, d.y))) {                       // 擋板：不會掉出去，擋回來（法線方向的速度反彈）
+        d.x = AX + (d.x - AX) / n; d.y = AY + (d.y - AY) / n;
+        const a = axisA(), b = axisB();
+        let nx = (d.x - AX) / (a * a), ny = (d.y - AY) / (b * b); const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+        const vn = d.vx * nx + d.vy * ny;
+        if (vn > 0) { d.vx -= (1 + WALL_E) * vn * nx; d.vy -= (1 + WALL_E) * vn * ny; if (vn > 120) wallEvents.push({ x: d.x, y: d.y, power: Math.min(1, vn / 500) }); }
+      } else startFall(d, now);
     }
     tickObstacles(dt);
     tickRound(dt);
@@ -328,7 +356,7 @@ const SpinnerGame = (() => {
     }
     d.lastHit = null;
     if (round === 1) d.respawnAt = now + RESPAWN_MS;
-    else { S(d.p).eliminated = true; d.elimAt = now; d.elimDist = Math.hypot(d.x - AX, d.y - AY); elimOrder.push(d); }
+    else { S(d.p).eliminated = true; d.elimAt = now; d.elimDist = ellNorm(d.x, d.y); elimOrder.push(d); }
     sendStatus(d.p);
   }
 
@@ -463,26 +491,26 @@ const SpinnerGame = (() => {
         dot.getContext().fillStyle = '#fff'; dot.getContext().fillRect(0, 0, 8, 8); dot.refresh();
       }
       // 平台：碗型。中間深（暗）、外圈淺（亮），一圈一圈的等高線；碗的形狀固定，縮圈時只是外圍的平台被「吃掉」（蓋上深色環）
-      this.pit = this.add.circle(AX, AY, ARENA_R + 70, 0x0a1017).setDepth(0);
+      this.pit = this.add.ellipse(AX, AY, (ARENA_A + 70) * 2, (ARENA_R + 70) * 2, 0x0a1017).setDepth(0);
       // 碗只畫一次、存成貼圖（每格重畫 28 個大圓太吃效能），之後每格只貼一張圖
       if (!this.textures.exists('spinner-bowl')) {
-        const g = this.add.graphics(), C = ARENA_R;                  // 貼圖是 2R x 2R，圓心在 (R, R)
+        const g = this.add.graphics(), CX = ARENA_A, CY = ARENA_R;   // 貼圖是 2A x 2B，橢圓中心在 (A, B)
         const STEPS = 28, dark = Phaser.Display.Color.ValueToColor(0x16222f), light = Phaser.Display.Color.ValueToColor(0x6a8cae);
         for (let i = 0; i < STEPS; i++) {
           const t = 1 - i / STEPS;                                   // 1 = 最外圈，0 = 中心
           const c = Phaser.Display.Color.Interpolate.ColorWithColor(dark, light, 100, Math.pow(t, 1.3) * 100);
-          g.fillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b)).fillCircle(C, C, ARENA_R * t);
+          g.fillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b)).fillEllipse(CX, CY, ARENA_A * 2 * t, ARENA_R * 2 * t, 96);
         }
         g.lineStyle(2, 0x9bb6d1, 0.25);
-        for (const k of [0.25, 0.5, 0.75]) g.strokeCircle(C, C, ARENA_R * k);
+        for (const k of [0.25, 0.5, 0.75]) g.strokeEllipse(CX, CY, ARENA_A * 2 * k, ARENA_R * 2 * k, 96);
         g.lineStyle(2, 0x9bb6d1, 0.12);
-        for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; g.lineBetween(C + Math.cos(a) * 20, C + Math.sin(a) * 20, C + Math.cos(a) * ARENA_R, C + Math.sin(a) * ARENA_R); }
-        g.generateTexture('spinner-bowl', ARENA_R * 2, ARENA_R * 2);
+        for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; g.lineBetween(CX + Math.cos(a) * 20, CY + Math.sin(a) * 20, CX + Math.cos(a) * ARENA_A, CY + Math.sin(a) * ARENA_R); }
+        g.generateTexture('spinner-bowl', ARENA_A * 2, ARENA_R * 2);
         g.destroy();
       }
       this.platform = this.add.image(AX, AY, 'spinner-bowl').setDepth(1);
-      this.pitRing = this.add.graphics().setDepth(1.2);            // 縮圈時蓋住被「吃掉」的外圍
-      this.rim = this.add.graphics().setDepth(2);
+      this.rim = this.add.graphics().setDepth(2);                  // 平台邊框
+      this.wallG = this.add.graphics().setDepth(8);                // 上方擋板與擋板區
       this.obsSprites = new Map();                                  // 場中障礙的畫面（id → 物件），每個障礙畫一次，之後只改位置／透明度／旋轉
       // 文字：上方回合資訊、左邊擊殺榜、右邊訊息、中間大字
       const base = { fontSize: '30px', color: '#fff', fontStyle: 'bold', stroke: '#000', strokeThickness: 5 };
@@ -592,19 +620,29 @@ const SpinnerGame = (() => {
         Sfx.play('hit', { power: h.power });
       }
       for (const r of ramEvents.splice(0)) {
-        Sfx.play('ram');
+        Sfx.play('ram'); if (r.wall) { Sfx.play('boost'); this.cameras.main.shake(180, 0.008); }
         this.burst(r.x - r.dx * 30, r.y - r.dy * 30, 350, { speed: { min: 30, max: 140 }, angle: { min: Math.atan2(-r.dy, -r.dx) * 57.3 - 30, max: Math.atan2(-r.dy, -r.dx) * 57.3 + 30 }, scale: { start: 0.8, end: 0 }, tint: [0xffffff, 0xfdba74, 0xfb923c] }, 12);
       }
+      for (const w of wallEvents.splice(0)) { Sfx.play('hit', { power: w.power }); this.burst(w.x, w.y, 250, { speed: { min: 40, max: 160 }, scale: { start: 0.7, end: 0 }, tint: [0xe2e8f0, 0x94a3b8, 0xfacc15] }, 6); }
       for (const f of fallEvents.splice(0)) {
         Sfx.play('fall');
         this.burst(f.x, f.y, 600, { speed: { min: 40, max: 160 }, scale: { start: 1, end: 0 }, gravityY: 200, tint: [0x93c5fd, 0xffffff] }, 14);
       }
 
       // 縮圈：外圍被吃掉的部分蓋上深色環；邊框（越縮越紅）
-      this.pitRing.clear();
-      if (arenaR < ARENA_R - 0.5) this.pitRing.lineStyle(ARENA_R + 4 - arenaR, 0x0a1017).strokeCircle(AX, AY, (arenaR + ARENA_R + 4) / 2);
+      this.platform.setScale(arenaR / ARENA_R);                       // 縮圈：整個平台跟著縮小
       const danger = round === 2 ? Math.min(1, (ARENA_R - arenaR) / (ARENA_R * (1 - SHRINK_MIN_RATIO))) : 0;
-      this.rim.clear().lineStyle(10, Phaser.Display.Color.GetColor(Math.round(174 + 70 * danger), Math.round(195 - 100 * danger), Math.round(216 - 130 * danger))).strokeCircle(AX, AY, arenaR + 3);
+      const A = axisA(), B = axisB();
+      this.rim.clear().lineStyle(10, Phaser.Display.Color.GetColor(Math.round(174 + 70 * danger), Math.round(195 - 100 * danger), Math.round(216 - 130 * danger))).strokeEllipse(AX, AY, (A + 3) * 2, (B + 3) * 2, 96);
+      // 擋板：橢圓上方 120° 的弧。厚鋼板 + 黃黑斜紋；裡面（離中心 WALL_ZONE 以外）淡黃色底 = 擋板區（在這裡往下衝撞特別強）
+      const wg = this.wallG; wg.clear();
+      const pts = (k, off) => { const out = []; for (let i = 0; i <= 36; i++) { const ph = WALL_FROM + (WALL_TO - WALL_FROM) * i / 36; out.push([AX + Math.cos(ph) * (A * k + off), AY + Math.sin(ph) * (B * k + off)]); } return out; };
+      const outer = pts(1, 0), inner = pts(WALL_ZONE, 0);
+      wg.fillStyle(0xfacc15, 0.13).beginPath(); outer.forEach(([x, y], i) => (i ? wg.lineTo(x, y) : wg.moveTo(x, y))); [...inner].reverse().forEach(([x, y]) => wg.lineTo(x, y)); wg.closePath().fillPath();
+      const wo = pts(1, 11);
+      wg.lineStyle(22, 0x1e293b).beginPath(); wo.forEach(([x, y], i) => (i ? wg.lineTo(x, y) : wg.moveTo(x, y))); wg.strokePath();
+      wg.lineStyle(14, 0x94a3b8).beginPath(); wo.forEach(([x, y], i) => (i ? wg.lineTo(x, y) : wg.moveTo(x, y))); wg.strokePath();
+      for (let i = 0; i < 36; i += 2) { const [x0, y0] = pts(1, 5)[i], [x1, y1] = pts(1, 17)[i + 1]; wg.lineStyle(5, i % 4 ? 0x111827 : 0xfacc15).lineBetween(x0, y0, x1, y1); }
 
       // 圓盤
       const now = Date.now();
@@ -651,7 +689,7 @@ const SpinnerGame = (() => {
     players.forEach((p) => { delete p.spinner; });
     discs = list.map(newDisc);
     version++;
-    elimOrder = []; ramEvents = []; hitEvents = []; fallEvents = []; allOfflineSince = 0;
+    elimOrder = []; ramEvents = []; hitEvents = []; wallEvents = []; fallEvents = []; allOfflineSince = 0;
     obstacles = []; obsClock = 0; nextObsAt = OBS_FIRST_S; obsEvents = []; boostEvents = [];
     Hub.game.scene.stop('spinner');
     Hub.game.scene.start('spinner');
@@ -688,11 +726,12 @@ const SpinnerGame = (() => {
       const p = players.get(playerId);
       if (!p || !discOf(p) || typeof data.mx !== 'number') return;
       const prev = S(p).input;
-      S(p).input = { mx: data.mx, my: data.my, at: Date.now(), dash: !!data.dash, ramReq: prev.ramReq || (!!data.dash && !prev.dash) };   // 衝撞：按下的瞬間觸發一次
+      const rising = !!data.dash && !prev.dash;                        // 衝撞：手機放開衝撞鈕的那一刻送來 dash:true 和滑動的方向（ax, ay）
+      S(p).input = { mx: data.mx, my: data.my, at: Date.now(), dash: !!data.dash, ramReq: prev.ramReq || rising, ramDir: rising ? { x: Number(data.ax) || 0, y: Number(data.ay) || 0 } : prev.ramDir };
       if (data.mode === 'gyro' || data.mode === 'stick') C(p).mode = data.mode;
       if (data.ready && !C(p).ready) { C(p).ready = true; sendStatus(p); checkAllReady(); }
     },
-    onPlayerLeft(p) { if (p.spinner) p.spinner.input = { mx: 0, my: 0, at: 0, dash: false, ramReq: false }; checkAllOffline(); checkAllReady(); },
+    onPlayerLeft(p) { if (p.spinner) p.spinner.input = { mx: 0, my: 0, at: 0, dash: false, ramReq: false, ramDir: null }; checkAllOffline(); checkAllReady(); },
     onPlayerJoin() { checkAllOffline(); },
     onPhase(phase) {
       $('spinnerPanel').classList.toggle('hidden', phase !== 'roundEnd' && phase !== 'result');
@@ -713,7 +752,7 @@ const SpinnerGame = (() => {
     stateExtra: () => ({ round }),
     lobbyInfo: (n) => n ? `已選好 ${n} 人，個人混戰（共 2 回合，最多 ${MAX_PLAYERS} 人）` : '至少要有 1 人選好角色',
     // 測試用
-    _state: () => ({ phase: Hub.phase, round, arenaR, remainingMs, elapsedMs, obsClock,
+    _state: () => ({ phase: Hub.phase, round, arenaR, a: axisA(), b: axisB(), remainingMs, elapsedMs, obsClock,
       obstacles: obstacles.map((o) => ({ id: o.id, type: o.type, x: o.x, y: o.y, angle: o.type === 'bar' ? barAngle(o) : o.angle, dir: o.dir, active: obsActive(o), warn: obsClock < o.activeAt, leftS: o.fadeAt - obsClock, r: obsRadius(o) })), elim: elimOrder.map((d) => d.p.id),
       discs: discs.map((d) => ({ id: d.p.id, x: d.x, y: d.y, vx: d.vx, vy: d.vy, alive: d.alive, falling: d.falling, ramT: d.ramT, ramCd: d.ramCd, kills1: S(d.p).kills1, kills2: S(d.p).kills2, deaths: S(d.p).deaths, eliminated: S(d.p).eliminated, ghost: Date.now() < d.ghostUntil, finalRank: S(d.p).finalRank, roundRank: S(d.p).roundRank })) }),
     _set: (o) => {

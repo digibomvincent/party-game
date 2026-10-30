@@ -25,8 +25,8 @@ const RaceGame = (() => {
   //   slide 往前滑：跌倒往前滑 SLIDE_MS，滑行中不能按鍵，但自動往前衝 SLIDE_DIST
   const SKILLS = {
     c1: { kind: 'boar', name: '騎山豬', icon: '🐗' },
-    c2: { kind: 'sing', name: '唱歌', icon: '🎤' },
-    c3: { kind: 'giant', name: '巨人化', icon: '🦣' },
+    c2: { kind: 'giant', name: '巨人化', icon: '🦣' },
+    c3: { kind: 'sing', name: '唱歌', icon: '🎤' },
     c4: { kind: 'slide', name: '往前滑', icon: '🛷' },
   };
   const BOAR_MS = 3000, BOAR_MULT = 1.8;

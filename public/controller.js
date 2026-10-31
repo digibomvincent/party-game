@@ -575,6 +575,18 @@ function attachRamSlide(btn, fire) {
 // 搖桿模式：把「放開那一刻」的方向送出去（dash:true + ax, ay），接著立刻送一次放開
 attachRamSlide($('btnDash'), (dx, dy) => { held.dash = true; held.ax = dx; held.ay = dy; sendInput(); held.dash = false; held.ax = held.ay = 0; sendInput(); });
 
+// 必殺技（足球）：每人每場一次，球在身邊（按鈕會閃）時按下 → 全場暫停，用左邊搖桿瞄準 1 秒，球就以超快速度飛出去
+{
+  const btn = $('btnUlt');
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); btn.setPointerCapture(e.pointerId);
+    if (btn.dataset.state !== 'near') { vibrate([40, 40, 40]); return; }       // 還不能用：球不在身邊，或已經用過
+    held.ult = true; updateKeepAlive(); sendInput(); vibrate([60]);
+  });
+  const up = () => { if (!held.ult) return; held.ult = false; updateKeepAlive(); sendInput(); };
+  btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up);
+}
+
 // 頭槌：按住蓄力，在這塊區域「像搖桿一樣滑動」指定要把球打去哪個方向，放開就打出去。
 //       球在角色附近時，頭會直接衝向球，球則照你滑的方向飛；沒滑（單純按住放開）就用目前的移動方向。
 const AIM_R = 60, AIM_DEAD_UI = 0.2;

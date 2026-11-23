@@ -31,6 +31,7 @@ const GAME_LIST = [
   { id: 'soccer', icon: '⚽', name: '足球', desc: '搖桿跑位，用大頭把球頂進球門', enabled: true },
   { id: 'spinner', icon: '🌀', name: '陀螺大戰', desc: '操控圓盤互撞，把別人撞出平台', enabled: true },
   { id: 'quiz', icon: '❓', name: '猜猜他是誰', desc: '黑色剪影搶答，答對越快分數越高', enabled: true },
+  { id: 'trap', icon: '🚩', name: '陷阱跑酷', desc: '輪流放陷阱、一起衝終點（最多 6 人）', enabled: true },
 ];
 let selectedGame = 'race';   // 大廳目前選的遊戲
 
@@ -86,7 +87,7 @@ function setPhase(next) {
   sendAllStatus();
   if (next !== 'result' && Hub.Score) Hub.Score.discard();       // 離開結算畫面還沒按「計分」→ 這一場不計分
   // 配樂：大廳與各種結算畫面放輕鬆的；比賽中放該遊戲的曲子
-  const calm = next === 'lobby' || next === 'result' || next === 'roundEnd' || next === 'heatResult' || next === 'prepare' || next === 'scores';
+  const calm = next === 'lobby' || next === 'result' || next === 'roundEnd' || next === 'heatResult' || next === 'prepare' || next === 'scores' || next === 'trapScore';
   Sfx.music(calm || !Hub.currentGameId ? 'lobby' : Hub.currentGameId);
   if (next === 'result') Sfx.play('win'); else if (next === 'roundEnd' || next === 'heatResult') Sfx.play('roundEnd');
 }

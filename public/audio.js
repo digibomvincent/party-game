@@ -172,6 +172,11 @@ const Sfx = (() => {
   // 每首：bpm、tonic（MIDI）、scale（半音間隔）、bass（每小節低音的音階度數）、lead（每小節 16 格，數字 = 音階度數，. = 休止）、drums（k 大鼓 s 小鼓 h 腳踏鈸）
   const MAJOR = [0, 2, 4, 5, 7, 9, 11], MINOR = [0, 2, 3, 5, 7, 8, 10], HARM = [0, 2, 3, 5, 7, 8, 11];
   const TRACKS = {
+    trap: {
+      bpm: 132, tonic: 60, scale: MAJOR, bass: [0, 3, 4, 0], vol: { bass: 0.5, pad: 0.25, lead: 0.45, drums: 0.7 },
+      lead: ['7 . 4 . 7 . 9 . 7 . 4 . 2 . 4 .', '5 . 3 . 5 . 7 . 8 . 7 . 5 . 3 .', '4 . 6 . 8 . 11 . 8 . 6 . 4 . 6 .', '7 . . . 4 . . . 0 . 2 . 4 . . .'],
+      drums: { k: 'x...x..xx...x...', s: '....x.......x..x', h: 'x.xxx.x.x.xxx.x.' },
+    },
     quiz: {
       bpm: 112, tonic: 62, scale: MAJOR, bass: [0, 4, 5, 3], vol: { bass: 0.45, pad: 0.3, lead: 0.4, drums: 0.5 },
       lead: ['0 . 2 . 4 . 2 . 0 . 2 . 4 . 7 .', '4 . 5 . 7 . 5 . 4 . 2 . 4 . . .', '5 . 7 . 9 . 7 . 5 . 4 . 2 . 4 .', '4 . . 2 . 0 . . 2 . 4 . 2 . . .'],

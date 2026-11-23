@@ -116,6 +116,30 @@
     #readyPad button { border: 0; border-radius: 24px; font-family: inherit; font-weight: bold; color: #fff; background: var(--c, #3b82f6); }
     #btnReadyGyro { flex: 2; font-size: 34px; line-height: 1.4; }
     #btnReadyStick { flex: 1; font-size: 26px; background: #334155 !important; }
+    #trapPad { flex: 1; display: flex; margin: 0 12px 24px; min-height: 0; }
+    #trapPad > div { flex: 1; display: flex; gap: 12px; min-height: 0; }
+    #trapPad > div.hidden { display: none; }
+    #trapPad button { border: 0; border-radius: 22px; color: #fff; font-family: inherit; font-weight: 900; touch-action: none;
+      box-shadow: inset 0 -7px 0 rgba(0, 0, 0, .22), 0 8px 20px rgba(0, 0, 0, .3); }
+    #trapPad button.pressed { filter: brightness(1.35); transform: scale(.97); }
+    #trapPad > #tpPick { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; }
+    #tpPick button { background: linear-gradient(180deg, #3b82f6, #1d4ed8); font-size: 22px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+    #tpPick button span { font-size: 40px; }
+    #tpPick button:disabled { filter: grayscale(1) brightness(.45); }
+    #tpPick button.mine { background: linear-gradient(180deg, #fbbf24, #d97706); filter: none; }
+    #tpPlace { flex-direction: column; }
+    .dpad { flex: 1; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 8px; }
+    .dpad button { background: #334155; font-size: 34px; }
+    .dpad .up { grid-column: 2; grid-row: 1; } .dpad .lf { grid-column: 1; grid-row: 2; } .dpad .rt { grid-column: 3; grid-row: 2; } .dpad .dn { grid-column: 2; grid-row: 3; }
+    .tpBtns { display: flex; gap: 12px; height: 96px; flex: none; }
+    .tpBtns button { flex: 1; font-size: 26px; }
+    #tpRot { background: linear-gradient(180deg, #a855f7, #7e22ce); }
+    #tpPlaceBtn { background: linear-gradient(180deg, #4ade80, #16a34a); }
+    .tpMove { flex: 1.3; display: flex; gap: 10px; }
+    .tpMove button { flex: 1; background: var(--c, #3b82f6); font-size: 52px; }
+    .tpJumpCol { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+    #tpJump { flex: 1; background: linear-gradient(180deg, #fbbf24, #ea580c); font-size: 44px; }
+    #tpGive { flex: none; height: 56px; background: #475569; font-size: 18px; }
     #quizPad { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 12px 24px; }
     #quizPad.hidden { display: none; }
     #quizPad button { border: 0; border-radius: 24px; background: var(--c); color: #fff; font-family: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
@@ -233,6 +257,18 @@
       <div id="tiltBox"><div id="tiltRing"><div id="tiltBubble"></div></div></div>
       <button id="btnRamGyro"><span>衝撞<small>按住 → 滑動方向 → 放開</small></span><i class="ramArrow"></i></button>
       <div id="gyroBtns"><button id="btnCalib">校正（現在的姿勢當水平）</button><button id="btnToStick">改用搖桿</button></div>
+    </div>
+    <!-- 陷阱跑酷：搶道具（一格格道具卡）、放道具（方向鍵 + 旋轉 + 放下）、衝刺（◀ ▶ + 跳） -->
+    <div id="trapPad" class="hidden">
+      <div id="tpPick"></div>
+      <div id="tpPlace">
+        <div class="dpad"><button data-d="0,-1" class="up">▲</button><button data-d="-1,0" class="lf">◀</button><button data-d="1,0" class="rt">▶</button><button data-d="0,1" class="dn">▼</button></div>
+        <div class="tpBtns"><button id="tpRot">🔄 旋轉</button><button id="tpPlaceBtn">✅ 放下</button></div>
+      </div>
+      <div id="tpRun">
+        <div class="tpMove"><button id="tpLeft">◀</button><button id="tpRight">▶</button></div>
+        <div class="tpJumpCol"><button id="tpJump">跳</button><button id="tpGive">🏳 放棄</button></div>
+      </div>
     </div>
     <div id="quizPad" class="hidden">
       <button data-i="0" style="--c:#ef4444"><span>▲</span><b>A</b></button>

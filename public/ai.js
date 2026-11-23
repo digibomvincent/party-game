@@ -174,6 +174,35 @@ const AI = (() => {
     if (now >= a.quizAt && a.quizAt > 0) { a.quizAt = 0; Hub.currentGame.onInput(p.id, { mx: 0, my: 0, ans: a.quizPick }); }
   }
 
+  // ---------- 陷阱跑酷 ----------
+  // 搶道具：隨機晚一點搶一個；放道具：隨機找一個放得下的位置；衝刺：往旗子跑，前面有牆、洞或陷阱就跳，卡住太久就放棄
+  function trapTick(p, now, S) {
+    const g = Hub.currentGame, a = p.ai, L = lv();
+    const send = (o) => g.onInput(p.id, { mx: 0, my: 0, jump: false, ...o });
+    const me = S.players.find((x) => x.id === p.id);
+    if (!me) return;
+    const key = S.phase + S.round;
+    if (a.tKey !== key) { a.tKey = key; a.tAt = now + 800 + Math.random() * (L.dash ? 2500 : 5000); a.jumpUntil = 0; a.bestX = 0; a.bestAt = now; a.runStart = now; }
+    if (S.phase === 'trapPick') {
+      if (!me.item && now > a.tAt) { const free = S.box.map((b, i) => (b.by ? -1 : i)).filter((i) => i >= 0); if (free.length) g.onInput(p.id, { mx: 0, my: 0, pick: free[Math.floor(Math.random() * free.length)] }); a.tAt = now + 1500; }
+      return;
+    }
+    if (S.phase === 'trapPlace') { if (!me.placed && me.item && now > a.tAt + 1500) Hub.games.trap._aiPlace(p.id); return; }
+    if (S.phase !== 'trapRun') return;
+    const sense = Hub.games.trap._sense(p.id);
+    if (!sense || sense.state !== 'run') { send({}); return; }
+    if (sense.x > a.bestX + 8) { a.bestX = sense.x; a.bestAt = now; }
+    if (now - a.bestAt > 20000) { g.onInput(p.id, { mx: 0, my: 0, give: true }); g.onInput(p.id, { mx: 0, my: 0, give: false }); return; }   // 卡太久：放棄
+    const stuck = now - a.bestAt > 1800;
+    let mx = sense.toFlag || 1;
+    if (stuck && Math.floor(now / 1500) % 3 === 0) mx = -mx;                              // 卡住：偶爾往回走一點再衝
+    const want = sense.wallAhead || sense.gapAhead || sense.danger || stuck;
+    if (want && now > a.jumpUntil + 250 && (sense.onGround || sense.wall)) a.jumpUntil = now + (L.dash ? 380 : 250 + Math.random() * 200);
+    const jump = now < a.jumpUntil;
+    if (a.lastJump !== jump) { a.lastJump = jump; }
+    send({ mx: mx * (L.dash ? 1 : 0.85), jump });
+  }
+
   // ---------- 主迴圈 ----------
   let last = 0;
   setInterval(() => {
@@ -188,11 +217,13 @@ const AI = (() => {
       if (id === 'soccer') S = Hub.games.soccer._state();
       else if (id === 'spinner') S = Hub.games.spinner._state();
       else if (id === 'quiz') S = Hub.games.quiz._state();
+      else if (id === 'trap') S = Hub.games.trap._state();
       for (const p of ais) {
         if (id === 'race') raceTick(p, now);
         else if (id === 'soccer') soccerTick(p, now, S);
         else if (id === 'spinner') spinnerTick(p, now, S);
         else if (id === 'quiz') quizTick(p, now, S);
+        else if (id === 'trap') trapTick(p, now, S);
       }
     } catch (e) { console.error('AI error', e); }
   }, 40);

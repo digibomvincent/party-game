@@ -130,6 +130,8 @@ io.on('connection', (socket) => {
       mx: num(data?.mx), my: num(data?.my), dash: !!data?.dash, neck: !!data?.neck, ult: !!data?.ult,
       ax: num(data?.ax), ay: num(data?.ay),   // 足球：右手「頭槌」區域滑動的方向（瞄準）
       ans: Number.isInteger(data?.ans) && data.ans >= 0 && data.ans <= 3 ? data.ans : -1,   // 猜猜他是誰：選了第幾個選項（0~3）
+      jump: !!data?.jump, rot: !!data?.rot, place: !!data?.place, give: !!data?.give,   // 陷阱跑酷：跳（按住）、旋轉／放下／放棄（按下的瞬間）
+      pick: Number.isInteger(data?.pick) && data.pick >= 0 && data.pick < 16 ? data.pick : -1,   // 陷阱跑酷：搶第幾個道具
       ready: !!data?.ready, mode: data?.mode === 'gyro' || data?.mode === 'stick' ? data.mode : '',   // 陀螺大戰：準備好了嗎、操控方式
     });
   });

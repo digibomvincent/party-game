@@ -269,6 +269,9 @@ function setScreen(msg, btnText, enabled, color) {
   $('msg').innerHTML = `<div>${msg}</div>`;
   $('pad').classList.toggle('hidden', enabled !== true);
   $('quizPad').classList.toggle('hidden', enabled !== 'quiz');
+  $('trapPad').classList.toggle('hidden', !String(enabled).startsWith('trap'));
+  for (const [id, v] of [['tpPick', 'trapPick'], ['tpPlace', 'trapPlace'], ['tpRun', 'trapRun']]) $(id).classList.toggle('hidden', enabled !== v);
+  if (!String(enabled).startsWith('trap')) trapRelease();
   $('soccerPad').classList.toggle('hidden', enabled !== 'stick');
   $('readyPad').classList.toggle('hidden', enabled !== 'ready');
   $('gyroPad').classList.toggle('hidden', enabled !== 'gyro');
@@ -278,7 +281,7 @@ function setScreen(msg, btnText, enabled, color) {
   document.documentElement.style.touchAction = enabled ? 'none' : 'manipulation';       // 遊戲畫面整頁都不能縮放或捲動
   $('bigBtn').textContent = btnText;
   $('bigBtn').disabled = true;
-  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('stickKnob'), $('btnNeck'), $('btnDash'), $('btnRamGyro'), $('btnReadyGyro'), $('tiltBubble')].filter(Boolean)) el.style.setProperty('--c', color);
+  if (color) for (const el of [$('bigBtn'), $('btnL'), $('btnR'), $('tpLeft'), $('tpRight'), $('stickKnob'), $('btnNeck'), $('btnDash'), $('btnRamGyro'), $('btnReadyGyro'), $('tiltBubble')].filter(Boolean)) el.style.setProperty('--c', color);
   if (!enabled) { lastSide = null; updateNext(); }
 }
 
@@ -337,6 +340,27 @@ function render() {
     }
     const hint = phase === 'countdown' ? '預備…' : phase === 'goal' ? '進球！' : '頭槌把球打進對方球門';
     setScreen(`${board}<br>你是 ${team}　<small>${hint}</small>`, '', 'stick', color); return;
+  }
+  if (gameState.game === 'trap') {     // 陷阱跑酷：搶道具 → 放道具 → 衝刺
+    const ph = phase, head = `第 ${me.round || 1} / ${me.total || 8} 回合　<b>${me.score || 0}</b> 分`;
+    if (ph === 'result') { setScreen(`最終第 <b>${me.rank}</b> 名<br><small>${me.score} 分</small>`, `第 ${me.rank} 名`, false, color); return; }
+    if (ph === 'trapScore') { setScreen(`${me.gain ? `本回合 <b>+${me.gain}</b>` : '本回合沒得分'}<br><small>${head}　第 ${me.rank} 名</small>`, '等下一回合', false, color); return; }
+    if (ph === 'trapPick') {
+      if (me.item) { setScreen(`你拿到 ${me.item.icon} ${me.item.name}<br><small>${head}</small>`, '等其他人搶…', false, color); return; }
+      const grid = $('tpPick');
+      grid.innerHTML = (me.box || []).map((b, i) => `<button data-i="${i}" ${b.taken ? 'disabled' : ''} class="${b.mine ? 'mine' : ''}"><span>${b.icon}</span>${b.name}</button>`).join('');
+      setScreen(`搶一個道具！<br><small>${head}</small>`, '', 'trapPick', color); return;
+    }
+    if (ph === 'trapPlace') {
+      if (!me.item || me.placed) { setScreen(`${me.placed ? '✅ 放好了' : '這回合沒有道具'}，等其他人…<br><small>${head}</small>`, '等待中', false, color); return; }
+      setScreen(`放下 ${me.item.icon} ${me.item.name}<br><small>方向鍵移動、旋轉，看大螢幕上的游標</small>`, '', 'trapPlace', color); return;
+    }
+    if (ph === 'trapRun') {
+      if (me.run === 'dead') { setScreen(`💀 陣亡了<br><small>等這回合結束　${head}</small>`, '觀戰中', false, color); return; }
+      if (me.run === 'done') { setScreen(`🏁 抵達終點！第 ${me.finishRank} 個<br><small>${head}</small>`, '等其他人', false, color); return; }
+      setScreen(`衝到終點旗子！<br><small>${head}</small>`, '', 'trapRun', color); return;
+    }
+    setScreen(`準備…<br><small>${head}</small>`, '等待中', false, color); return;
   }
   if (gameState.game === 'quiz') {     // 猜猜他是誰：A B C D 四個大按鈕
     const ph = phase, ans = me.answered, opts = me.options || [];
@@ -723,6 +747,42 @@ function sendReady() { socket.emit('input', { mx: 0, my: 0, ready: true, mode: c
 for (const b of $('quizPad').children) {
   b.addEventListener('pointerdown', (e) => { e.preventDefault(); if (b.disabled) return; socket.emit('input', { mx: 0, my: 0, ans: Number(b.dataset.i) }); vibrate([30]); });
 }
+// ---------- 陷阱跑酷的手機按鈕 ----------
+// 持續狀態（方向、跳）按住時每 120ms 重送一次；旋轉／放下／放棄／搶道具是按一下送一次
+const trap = { mx: 0, my: 0, jump: false, timer: null };
+function trapSend(extra) {
+  socket.emit('input', { mx: trap.mx, my: trap.my, jump: trap.jump, ...(extra || {}) });
+}
+function trapKeep() {
+  const on = trap.mx || trap.my || trap.jump;
+  if (on && !trap.timer) trap.timer = setInterval(() => trapSend(), 120);
+  if (!on && trap.timer) { clearInterval(trap.timer); trap.timer = null; }
+}
+function trapRelease() {
+  if (!trap.mx && !trap.my && !trap.jump) return;
+  trap.mx = trap.my = 0; trap.jump = false; trapKeep(); trapSend();
+  document.querySelectorAll('#trapPad .pressed').forEach((b) => b.classList.remove('pressed'));
+}
+function trapHold(btn, down, up) {
+  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); btn.setPointerCapture(e.pointerId); btn.classList.add('pressed'); down(); trapKeep(); trapSend(); vibrate([10]); });
+  const end = () => { if (!btn.classList.contains('pressed')) return; btn.classList.remove('pressed'); up(); trapKeep(); trapSend(); };
+  btn.addEventListener('pointerup', end); btn.addEventListener('pointercancel', end);
+}
+const trapTap = (btn, key) => btn.addEventListener('pointerdown', (e) => { e.preventDefault(); trapSend({ [key]: true }); trapSend({ [key]: false }); vibrate([20]); });
+for (const b of document.querySelectorAll('#tpPlace .dpad button')) {
+  const [dx, dy] = b.dataset.d.split(',').map(Number);
+  trapHold(b, () => { trap.mx = dx; trap.my = dy; }, () => { if (trap.mx === dx && trap.my === dy) { trap.mx = 0; trap.my = 0; } });
+}
+trapTap($('tpRot'), 'rot'); trapTap($('tpPlaceBtn'), 'place');
+trapHold($('tpLeft'), () => { trap.mx = -1; }, () => { if (trap.mx === -1) trap.mx = 0; });
+trapHold($('tpRight'), () => { trap.mx = 1; }, () => { if (trap.mx === 1) trap.mx = 0; });
+trapHold($('tpJump'), () => { trap.jump = true; }, () => { trap.jump = false; });
+$('tpGive').addEventListener('click', () => { if (confirm('確定要放棄這回合嗎？')) { trapSend({ give: true }); trapSend({ give: false }); } });
+$('tpPick').addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('button'); if (!b || b.disabled) return;
+  e.preventDefault(); socket.emit('input', { mx: 0, my: 0, pick: Number(b.dataset.i) }); vibrate([30]);
+});
+
 $('btnReadyGyro').addEventListener('click', async () => {
   const r = await enableGyro();               // 這一行在使用者點擊的事件裡，iPhone 才肯跳授權視窗
   if (r.ok) { calibrate(); setCtrlMode('gyro'); gyroNote = ''; }

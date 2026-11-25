@@ -50,7 +50,7 @@ const CharRender = (() => {
     const tex = textures().exists(key) ? textures().get(key) : textures().createCanvas(key, PHOTO_PX, PHOTO_PX);
     const g = tex.getContext();
     g.clearRect(0, 0, PHOTO_PX, PHOTO_PX);
-    CharArt.drawFace(g, PHOTO_PX, i);
+    CharArt.drawChar(g, PHOTO_PX, c, i);
     tex.refresh();
     CharArt.loadImage(c, (img) => {
       g.clearRect(0, 0, PHOTO_PX, PHOTO_PX);

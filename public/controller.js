@@ -29,7 +29,7 @@ document.addEventListener('touchend', (e) => {
 }, { passive: false });
 document.addEventListener('touchmove', (e) => { if (e.touches.length > 1 && e.cancelable) e.preventDefault(); }, { passive: false });
 
-const PHOTO_ENABLED = false; // 大頭照功能先隱藏；要開回來改成 true
+const PHOTO_ENABLED = true;  // 加入時可以拍一張大頭照，當作遊戲裡角色的頭（只存在這支手機和這場遊戲，伺服器不存檔）
 const SIMUL_MS = 80;         // 左右鍵在這個時間內先後按下，視為「同時按」
 
 // ---------- 身分：playerId 存 localStorage，重整後還是同一個人 ----------
@@ -54,7 +54,19 @@ let pickedChar = null;  // 這次選的角色 id
 let repicking = false;  // 已選過，但按了「改角色 / 顏色」
 let pickMsg = '';
 
-fetch('characters.json').then((r) => r.json()).then((d) => { cfg = d; render(); });
+// 角色資料：公開版讀 characters.json（類型 + emoji）；主持人解鎖朋友版後（game:state 帶 friend 通行證）改讀 /p/<通行證>/characters.json
+let cfgBase = null;
+function loadCfg(token) {
+  const base = token ? 'p/' + token + '/' : '';
+  if (base === cfgBase) return;
+  cfgBase = base;
+  fetch(base + 'characters.json', { cache: 'no-cache' }).then((r) => r.json()).then((d) => {
+    if (base !== cfgBase) return;
+    cfg = { ...d, characters: d.characters.map((c) => ({ ...c, art: c.art && base + c.art, head: c.head && base + c.head })) };
+    render();
+  }).catch(() => {});
+}
+loadCfg(null);
 
 // ---------- 畫面切換：加入 / 選角色 / 遊戲，一次只顯示一個 ----------
 function show(name) {
@@ -134,7 +146,7 @@ socket.on('connect', () => {
 });
 
 // ---------- 接收 host 的訊息 ----------
-socket.on('game:state', (s) => { gameState = s; render(); });
+socket.on('game:state', (s) => { gameState = s; loadCfg(s.friend || null); render(); });
 socket.on('player:status', (s) => {
   status = s;
   if (s.pickError) {            // 顏色剛被別人選走：回到選顏色那一步
@@ -154,10 +166,11 @@ socket.on('room:closed', () => {
 function setBigArt(c, i) {
   const box = $('bigArt');
   box.innerHTML = '';
+  $('pickName').textContent = c ? (c.emoji ? `${c.emoji} ${c.name}` : c.name) : '';
   const fallback = () => {                                     // 沒有大圖：畫大一點的預設臉（有 head 就用 head）
     const cv = document.createElement('canvas');
     cv.width = cv.height = 300;
-    CharArt.drawFace(cv.getContext('2d'), 300, i);
+    CharArt.drawChar(cv.getContext('2d'), 300, c, i);
     CharArt.loadImage(c, (img) => { const g = cv.getContext('2d'); g.clearRect(0, 0, 300, 300); CharArt.drawImage(g, img, 300); });
     box.replaceChildren(cv);
   };
@@ -206,13 +219,14 @@ function renderPick() {
   if (!cfg.characters.some((c) => c.id === pickedChar)) pickedChar = cfg.characters[0].id;
 
   if (pickStep === 'char') {
-    $('pickTitle').textContent = '選你的角色';
+    $('pickTitle').textContent = cfgBase ? '選你的角色' : '選你的類型';
+    $('pickOk').textContent = cfgBase ? '選這個角色' : '選這個類型';
     cfg.characters.forEach((c, i) => {
       const b = document.createElement('button');
       b.className = 'charBtn';
       const cv = document.createElement('canvas');
       cv.width = cv.height = 120;
-      CharArt.drawFace(cv.getContext('2d'), 120, i);           // 先畫預設臉
+      CharArt.drawChar(cv.getContext('2d'), 120, c, i);        // 先畫預設臉（公開版是類型的 emoji）
       CharArt.loadImage(c, (img) => {                           // 有 head 圖就換成頭
         const g = cv.getContext('2d');
         g.clearRect(0, 0, 120, 120);

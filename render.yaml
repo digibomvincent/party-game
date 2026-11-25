@@ -6,3 +6,6 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: npm start
+    envVars:
+      - key: FRIEND_CODE      # 朋友版通關碼：在 Render 後台填（不要寫在這裡）
+        sync: false

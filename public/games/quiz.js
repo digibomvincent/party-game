@@ -14,7 +14,7 @@ const QuizGame = (() => {
   const SCORES_MS = 4500;       // 排行榜停留
   const BASE_POINTS = 500;      // 答對的基本分；剩餘時間比例再加最多 500
   const STREAK_BONUS = 100;     // 連續答對：第 2 題起每多一題 +100，最多 +300
-  const INTRO_SFX = 'audio/pokeguess_6s.mp3';   // 每題開始播放的音檔（原檔 pokeguess.mp3 的前 6 秒，最後 0.5 秒淡出）
+  const INTRO_SFX_PATH = 'audio/pokeguess_6s.mp3';   // 每題開始播放的音檔（原檔 pokeguess.mp3 的前 6 秒，最後 0.5 秒淡出）
   const OPTS = [                // 四個選項的顏色與形狀（和手機按鈕一致）
     { label: 'A', color: '#ef4444', shape: '▲' }, { label: 'B', color: '#3b82f6', shape: '◆' },
     { label: 'C', color: '#eab308', shape: '●' }, { label: 'D', color: '#22c55e', shape: '■' },
@@ -63,9 +63,11 @@ const QuizGame = (() => {
   }
 
   // ---------- 流程 ----------
+  let bankBase = null;
   async function loadBank() {
-    if (bank) return bank;
-    bank = await (await fetch('quiz/questions.json', { cache: 'no-cache' })).json();
+    if (bank && bankBase === Hub.assetBase) return bank;
+    bankBase = Hub.assetBase;
+    bank = await (await fetch(Hub.assetBase + 'quiz/questions.json', { cache: 'no-cache' })).json();
     return bank;
   }
   async function start() {
@@ -78,7 +80,7 @@ const QuizGame = (() => {
     players.forEach((p) => { delete p.quiz; });
     participants.forEach((p) => S(p));
     deck = shuffle(bank.questions); idx = -1; seconds = bank.seconds || 15;
-    Sfx.preload(INTRO_SFX);                                              // 先把每題開始的音檔抓好、解碼好
+    Sfx.preload(Hub.assetBase + INTRO_SFX_PATH);                                              // 先把每題開始的音檔抓好、解碼好
     $('qAgainBtn').onclick = start; $('qLobbyBtn').onclick = () => Hub.backToLobby();
     nextQuestion();
   }
@@ -98,14 +100,14 @@ const QuizGame = (() => {
     participants.forEach((p) => { const s = S(p); s.ans = -1; s.at = 0; s.gain = 0; s.correct = null; });
     counts = [0, 0, 0, 0];
     el.num.textContent = `第 ${idx + 1} / ${deck.length} 題`;
-    el.img.src = q().image; el.mask.src = q().mask;
+    el.img.src = Hub.assetBase + q().image; el.mask.src = Hub.assetBase + q().mask;
     el.mask.style.transition = 'none'; el.mask.style.opacity = 1;
     el.banner.textContent = ''; el.sec.textContent = seconds;
     el.bar.style.width = '100%'; el.bar.classList.remove('low');
     renderOpts('question'); show('question');
     setPhase('quizIntro');
     el.banner.textContent = `第 ${idx + 1} 題　這是誰？`; el.banner.classList.add('show');
-    Sfx.playFile(INTRO_SFX, { dur: 6, vol: 1.6 });                         // 每題一開始播（配樂會暫時壓小）
+    Sfx.playFile(Hub.assetBase + INTRO_SFX_PATH, { dur: 6, vol: 1.6 });                         // 每題一開始播（配樂會暫時壓小）
     Promise.all([el.img.decode(), el.mask.decode()]).catch(() => {}).then(() => later(beginAnswering, INTRO_MS));
   }
   function beginAnswering() {

@@ -47,6 +47,17 @@ const CharArt = {
     }
     g.restore();
   },
+  // 角色的頭：有 emoji 的（公開版的「類型」）畫成彩色圓底 + 大 emoji；其他畫預設臉（有 head 圖檔的之後會換成圖）
+  drawChar(g, size, c, index) {
+    if (!c || !c.emoji) { CharArt.drawFace(g, size, index); return; }
+    const r = size / 2;
+    g.save();
+    g.fillStyle = c.bg || '#64748b'; g.beginPath(); g.arc(r, r, r * 0.94, 0, 7); g.fill();
+    g.lineWidth = size * 0.05; g.strokeStyle = '#fff'; g.stroke();
+    g.font = `${Math.round(size * 0.58)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(c.emoji, r, r * 1.08);
+    g.restore();
+  },
   // 試著載入角色的頭（head）；沒填或載入失敗就什麼都不做（維持預設臉）
   loadImage(c, cb) {
     if (!c.head) return;

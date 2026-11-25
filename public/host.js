@@ -30,7 +30,7 @@ const GAME_LIST = [
   { id: 'race',   icon: '🏃', name: '跑步', desc: '左右交替連按，衝向終點！', enabled: true },
   { id: 'soccer', icon: '⚽', name: '足球', desc: '搖桿跑位，用大頭把球頂進球門', enabled: true },
   { id: 'spinner', icon: '🌀', name: '陀螺大戰', desc: '操控圓盤互撞，把別人撞出平台', enabled: true },
-  { id: 'quiz', icon: '❓', name: '猜猜他是誰', desc: '黑色剪影搶答，答對越快分數越高', enabled: true },
+  { id: 'quiz', icon: '❓', name: '猜猜他是誰', desc: '黑色剪影搶答，答對越快分數越高', enabled: true, friendOnly: true },   // 題目都是朋友的照片：只有朋友版有
   { id: 'trap', icon: '🚩', name: '陷阱跑酷', desc: '輪流放陷阱、一起衝終點（最多 6 人）', enabled: true },
 ];
 let selectedGame = 'race';   // 大廳目前選的遊戲
@@ -47,6 +47,9 @@ const Hub = {
   phase: 'lobby',
   game: null,                // Phaser.Game（下面建立）
   escapeHtml, setPhase, sendStatus, sendAllStatus, broadcastState, backToLobby, onlinePlayers,
+  friend: false,             // 是否已輸入通關碼、切到「朋友版」（朋友的角色、猜猜他是誰、唱歌影片）
+  friendToken: null,         // 朋友版檔案的通行證（網址 /p/<通行證>/...）
+  assetBase: '',             // 朋友版檔案的網址開頭：'p/<通行證>/'；公開版是空字串
 };
 
 // Phaser 畫布：場景由各遊戲自己登記、啟動（games/race.js 會 game.scene.add）
@@ -74,6 +77,7 @@ function broadcastState() {
     phase: Hub.phase, game: Hub.currentGameId, heat: 0, totalHeats: 0,
     ...(g && g.stateExtra ? g.stateExtra() : {}),
     taken: takenColors(),
+    friend: Hub.friendToken,                       // 手機據此改讀朋友版的角色
   });
 }
 
@@ -110,7 +114,8 @@ function sendAllStatus() { Hub.players.forEach((p) => p.online && sendStatus(p))
 // 大廳
 // ============================================================
 function renderGames() {
-  $('gameList').innerHTML = GAME_LIST.map((g) =>
+  if (!Hub.friend && GAME_LIST.find((g) => g.id === selectedGame)?.friendOnly) selectedGame = 'race';
+  $('gameList').innerHTML = GAME_LIST.filter((g) => Hub.friend || !g.friendOnly).map((g) =>
     `<div class="game-card${g.id === selectedGame ? ' sel' : ''}${g.enabled ? '' : ' off'}" data-id="${g.id}">` +
     `<div class="icon">${g.icon}</div><div><div class="name">${g.name}</div><div class="desc">${g.desc}</div></div>` +
     (g.badge || !g.enabled ? `<span class="badge">${g.badge || '未開放'}</span>` : '') + `</div>`).join('');
@@ -130,7 +135,7 @@ function avatarUrl(c, i) {
   if (!avatarCache[c.id]) {
     const cv = document.createElement('canvas');
     cv.width = cv.height = 72;
-    CharArt.drawFace(cv.getContext('2d'), 72, i);
+    CharArt.drawChar(cv.getContext('2d'), 72, c, i);
     avatarCache[c.id] = cv.toDataURL();
   }
   return avatarCache[c.id];
@@ -143,7 +148,7 @@ function renderLobby() {
   $('count').textContent = list.length;
   $('playerList').innerHTML = list.length ? list.map((p) => {
     const ci = Hub.characters.findIndex((x) => x.id === p.charId), c = Hub.characters[ci];
-    const avatar = c ? `<img class="av" src="${avatarUrl(c, ci)}" alt="">` : `<span class="av"></span>`;
+    const avatar = p.photo ? `<img class="av" src="${p.photo}" alt="">` : c ? `<img class="av" src="${avatarUrl(c, ci)}" alt="">` : `<span class="av"></span>`;
     return p.color
       ? `<li style="--c:${p.color}">${avatar}<span>${escapeHtml(p.name)}${c ? `<br><small>${p.ai ? '🤖 ' : ''}${c.name}${!p.ai && Hub.Score && Hub.Score.totalOf(p) ? `　· ${Hub.Score.totalOf(p)} 分` : ''}</small>` : ''}</span></li>`
       : `<li style="opacity:.6"><span class="av"></span><span>${escapeHtml(p.name)}<br><small>選角色中…</small></span></li>`;
@@ -243,13 +248,33 @@ socket.on('player:pick', ({ playerId, charId, color }) => {
 // 啟動：讀角色資料 → 建立房間 → 顯示房號與 QR Code
 // ============================================================
 let created = false;
+// 讀角色資料：公開版是 characters.json（類型 + emoji）；朋友版從 /p/<通行證>/characters.json 讀，圖檔網址也加上同樣的開頭
+async function loadCharacters() {
+  const cfg = await (await fetch(Hub.assetBase + 'characters.json', { cache: 'no-cache' })).json();
+  Hub.characters = cfg.characters.map((c) => ({ ...c, art: c.art && Hub.assetBase + c.art, head: c.head && Hub.assetBase + c.head }));
+  Hub.colors = cfg.colors.map((c) => c.hex);
+  for (const k of Object.keys(avatarCache)) delete avatarCache[k];
+  Hub.characters.forEach(CharRender.makeCharHead);
+}
+// 大廳右上角的 🔑：輸入通關碼 → 伺服器檢查 → 切到朋友版
+$('unlockBtn').onclick = () => {
+  if (Hub.friend) return;
+  const code = prompt('輸入通關碼（朋友版）');
+  if (!code) return;
+  socket.emit('host:unlock', { code }, async (res) => {
+    if (!res || !res.ok) { alert(res && res.error ? res.error : '解鎖失敗'); return; }
+    Hub.friend = true; Hub.friendToken = res.token; Hub.assetBase = 'p/' + res.token + '/';
+    await loadCharacters();
+    const v = $('singVideo');                                   // 唱歌技能的影片也是朋友版才有
+    v.innerHTML = `<source src="${Hub.assetBase}video/sing.mp4" type="video/mp4"><source src="${Hub.assetBase}video/sing.webm" type="video/webm">`; v.load();
+    $('unlockBtn').textContent = '🔓 朋友版'; $('unlockBtn').classList.add('on');
+    renderLobby(); broadcastState(); sendAllStatus();
+  });
+};
 socket.on('connect', async () => {
   if (created) { $('info').textContent = '⚠ 連線中斷過，請重新整理頁面建立新房間'; return; }
   created = true;
-  const cfg = await (await fetch('characters.json')).json();
-  Hub.characters = cfg.characters;
-  Hub.colors = cfg.colors.map((c) => c.hex);
-  Hub.characters.forEach(CharRender.makeCharHead);
+  await loadCharacters();
   socket.emit('host:create', ({ room, controllerUrl }) => {
     roomCode = room;
     $('roomCode').textContent = room;

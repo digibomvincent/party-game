@@ -6,11 +6,17 @@ const express = require('express');
 const http = require('http');
 const os = require('os');
 const { Server } = require('socket.io');
+const crypto = require('crypto');
+const path = require('path');
 
 // ---------- 常數 ----------
 const PORT = process.env.PORT || 3000;
 const MAX_NAME_LENGTH = 10; // 暱稱最長字數
 const MAX_PHOTO_LENGTH = 100000; // 大頭照 data URL 最大長度
+// 朋友版通關碼：設在 Render 的環境變數 FRIEND_CODE（不寫在程式裡）；沒設就永遠解不開
+const FRIEND_CODE = String(process.env.FRIEND_CODE || '');
+const PRIVATE_DIR = path.join(__dirname, 'private');   // 朋友的照片、角色、題庫、影片、原版音樂（只有解鎖的房間拿得到）
+const UNLOCK_TRIES_PER_MIN = 5;                         // 每個主畫面連線每分鐘最多試幾次通關碼
 
 const app = express();
 const server = http.createServer(app);
@@ -18,6 +24,13 @@ const io = new Server(server);
 
 // 頁面與程式每次都向伺服器確認有沒有更新（手機常常留著舊檔，新舊混用會讓畫面壞掉）
 app.use(express.static('public', { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
+// 朋友版的檔案：網址是 /p/<房間的通行證>/...，通行證只有「輸入過正確通關碼的房間」才有，房間關掉就失效
+const privateFiles = express.static(PRIVATE_DIR, { setHeaders: (res) => res.setHeader('Cache-Control', 'private, no-cache') });
+app.use('/p/:token', (req, res, next) => {
+  const ok = /^[0-9a-f]{32}$/.test(req.params.token) && [...rooms.values()].some((r) => r.token === req.params.token);
+  if (!ok) return res.sendStatus(403);
+  privateFiles(req, res, next);
+});
 
 // ---------- 取得電腦的區域網路 IP（給手機掃 QR Code 用）----------
 function getLanIp() {
@@ -71,6 +84,24 @@ io.on('connection', (socket) => {
       cb({ room: code, controllerUrl: `${BASE_URL}/controller.html?room=${code}` });
     }
     console.log(`[房間 ${code}] 已建立`);
+  });
+
+  // ---------- host 輸入朋友版通關碼：對了就給這個房間一張通行證（之後加入的手機從 game:state 拿到）----------
+  let unlockTries = [];
+  socket.on('host:unlock', (data, cb) => {
+    if (typeof cb !== 'function' || socket.data?.role !== 'host') return;
+    const room = rooms.get(socket.data.room);
+    if (!room) return cb({ ok: false });
+    const now = Date.now();
+    unlockTries = unlockTries.filter((t) => now - t < 60000);
+    if (unlockTries.length >= UNLOCK_TRIES_PER_MIN) return cb({ ok: false, error: '試太多次了，等一分鐘再試' });
+    unlockTries.push(now);
+    const code = String(data?.code || '');
+    const a = crypto.createHash('sha256').update(code).digest(), b = crypto.createHash('sha256').update(FRIEND_CODE).digest();
+    if (!FRIEND_CODE || !crypto.timingSafeEqual(a, b)) return cb({ ok: false, error: '通關碼不對' });
+    room.token = room.token || crypto.randomBytes(16).toString('hex');
+    console.log(`[房間 ${socket.data.room}] 已解鎖朋友版`);
+    cb({ ok: true, token: room.token });
   });
 
   // ---------- host 廣播目前階段給所有手機 ----------

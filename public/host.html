@@ -193,6 +193,8 @@
     #scoreBar { border-radius: 999px; border: 2px solid var(--gold); background: rgba(10, 16, 30, .92); box-shadow: 0 12px 40px rgba(0, 0, 0, .5); backdrop-filter: blur(8px); padding: 10px 14px 10px 26px; }
     #sndBox { background: rgba(255, 255, 255, .08); border: 1px solid var(--line); border-radius: 999px; backdrop-filter: blur(6px); }
     #hud { text-shadow: 0 2px 10px rgba(0, 0, 0, .6); }
+    #unlockBtn { position: absolute; top: 14px; right: 18px; font-size: 18px; padding: 6px 14px; background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .12); box-shadow: none; opacity: .55; }
+    #unlockBtn.on { opacity: 1; background: linear-gradient(180deg, #fde68a, #f59e0b); color: #3b2400; text-shadow: none; }
     /* 陷阱跑酷 */
     #trapPanel { background: rgba(9, 14, 28, .78); }
     .tpBox { display: grid; grid-template-columns: repeat(4, 170px); gap: 16px; margin: 10px 0 18px; }
@@ -218,12 +220,13 @@
 <body>
   <div id="game"></div>
   <!-- 跑步：小肥「唱歌」技能發動時，在畫面右側播放的影片（播完才消失） -->
-  <video id="singVideo" class="hidden" playsinline preload="auto"><source src="video/sing.mp4" type="video/mp4"><source src="video/sing.webm" type="video/webm"></video>
+  <video id="singVideo" class="hidden" playsinline preload="auto"></video>
   <div id="hud"></div>
   <button id="homeBtn" class="hidden">回大廳</button>
 
   <!-- 遊戲大廳：左欄選遊戲、右欄是加入的玩家 -->
   <div id="lobby" class="panel">
+    <button id="unlockBtn" type="button" title="輸入通關碼切到朋友版">🔑</button>
     <h1>運動會</h1>
     <div class="hub">
       <section class="col">

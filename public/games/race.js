@@ -372,7 +372,7 @@ const RaceGame = (() => {
     }
     if (sk.kind === 'slide') { st.slideFrom = st.pos; st.slideDone = false; st.slideDir = fail ? -1 : 1; }
     Sfx.play(fail ? 'skill_fail' : 'skill_' + sk.kind);
-    if (sk.kind === 'sing' && !fail) playSingVideo();
+    if (sk.kind === 'sing' && !fail && Hub.friend) playSingVideo();      // 影片是朋友版才有
     sendStatus(p); later(() => sendStatus(p), ms + 60);
   }
 

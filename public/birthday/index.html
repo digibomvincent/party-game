@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffe4ec">
+  <title>生日快樂冒險</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Huninn&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 上方進度：五顆星 + 音樂開關 -->
+  <header id="hud" hidden>
+    <div id="stars" aria-label="闖關進度"></div>
+    <button id="musicBtn" class="icon-btn" aria-label="音樂開關">🎵</button>
+  </header>
+
+  <!-- 開場畫面 -->
+  <section id="intro" class="screen intro">
+    <div class="intro-card">
+      <div class="intro-hearts">💖</div>
+      <p class="intro-to"></p>
+      <h1>生日快樂冒險</h1>
+      <p class="intro-sub">一共 5 關，全部通關有驚喜 🎁</p>
+      <form id="pwForm" hidden>
+        <input id="pwInput" inputmode="numeric" autocomplete="off" placeholder="輸入密碼">
+        <p class="pw-hint"></p>
+        <p class="pw-error" hidden>不對喔～再想想 🤔</p>
+      </form>
+      <button id="startBtn" class="big-btn">開始冒險 ✈️</button>
+      <button id="restartBtn" class="link-btn" hidden>從第一關重新開始</button>
+    </div>
+  </section>
+
+  <!-- 每一關的內容會放在這裡 -->
+  <main id="stage"></main>
+
+  <audio id="bgm" loop preload="auto"></audio>
+
+  <script src="config.js"></script>
+  <script src="stage1-map.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

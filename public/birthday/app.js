@@ -6,10 +6,15 @@
   const cfg = window.BIRTHDAY_CONFIG;
   const STORE_KEY = 'bday-progress';
 
+  // 旅行地點：每個都填了日期就照時間排序（'2023.04' 這種格式可以直接比大小）
+  if (cfg.trips?.length && cfg.trips.every((t) => t.date)) {
+    cfg.trips.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }
+
   // 關卡清單：還沒做好的關卡用 placeholder 先頂著
   const STAGES = [
     { title: '我們的旅行地圖', emoji: '✈️', run: (c, ctx) => window.Stage1.run(c, ctx) },
-    { title: '回憶大考驗', emoji: '📝', run: placeholder },
+    { title: '回憶大考驗', emoji: '📝', run: (c, ctx) => window.Stage2.run(c, ctx) },
     { title: '小遊戲', emoji: '🎮', run: placeholder },
     { title: '給你的卡片', emoji: '💌', run: placeholder },
     { title: '約會邀請函', emoji: '🍽️', run: placeholder },

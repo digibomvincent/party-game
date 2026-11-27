@@ -11,6 +11,7 @@
 | `busan-1.jpg`、`busan-2.jpg` | 釜山 |
 | `osaka-1.jpg`、`osaka-2.jpg` | 大阪 |
 | `sabah-1.jpg`、`sabah-2.jpg` | 沙巴 |
+| `quiz-1.jpg` | 第 2 關「這張照片是在哪裡拍的？」用的照片（一開始只露出一小塊） |
 
 - 每個地方的張數不限：多的話在 `../config.js` 對應地點的 `media` 多加幾行，例如
   `{ src: 'media/tokyo-4.jpg', caption: '一句話' }`
